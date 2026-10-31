@@ -23,7 +23,8 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 - Campagnes planifiées toutes les 24 heures ou tous les 7 jours, pause/reprise et journal des échéances.
 - Mode API avec recherche web OpenAI/Gemini, citations cliquables et métadonnées de recherche vérifiables.
 - Rapports PDF en français/anglais avec nom/logo d’agence, comparaison compatible et dossier de preuves JSON figé.
-- Interface responsive, thèmes clair/sombre, export des données personnelles et suppression du compte.
+- Interface ambre et encre, verre translucide, transitions et micro-interactions, thèmes clair/sombre et pause des animations respectant les préférences d’accessibilité.
+- Navigation mobile avec gestion du focus, export des données personnelles et suppression du compte.
 - Migrations Drizzle, Docker Compose, reverse proxy HTTPS optionnel, tests PostgreSQL et navigateur.
 
 **Pas encore livré :** envoi périodique automatique des rapports, alertes sortantes, audit de pages, recommandations GEO, classification automatique du sentiment, comptes d’équipe, Stripe et cloud multi-tenant. Les rapports sont générés à la demande. Voir [le guide des workflows agences](docs/AGENCY-WORKFLOWS.md) et [la feuille de route](docs/ROADMAP.md).
@@ -55,6 +56,8 @@ Ouvrir **http://localhost:3000** (l’origine doit correspondre à `APP_URL`). C
 
 Pour le scénario Karburo : créer le projet avec son domaine réel, ajouter deux concurrents et dix questions, enregistrer vos clés dans Paramètres, puis lancer une campagne. Les suggestions de questions sont des modèles de texte modifiables ; elles ne sont pas des résultats de mesure. Les clés sont nécessaires uniquement pour les appels réels, facturés par les fournisseurs.
 
+Pour essayer depuis un téléphone à distance : [prévisualisation HTTPS temporaire](docs/REMOTE-PREVIEW.md). [Design et accessibilité](docs/DESIGN.md).
+
 ## Docker
 
 Générer `.env` avec `npm run setup`, ou, si Node n’est pas installé :
@@ -72,7 +75,7 @@ Les migrations sont exécutées avant le web et le worker. Le port web est limit
 npm run typecheck
 npm test
 npm run build
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:e2e
 npm audit
 ```

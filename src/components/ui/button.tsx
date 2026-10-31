@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -19,8 +21,20 @@ export function Button({
   variant,
   size,
   asChild = false,
+  onClick,
   ...props
 }: React.ComponentProps<"button"> & VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
   const Comp = asChild ? Slot : "button";
-  return <Comp className={cn(buttonVariants({ variant, size, className }))} {...props} />;
+  return (
+    <Comp
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+      onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+        // Safari does not focus buttons on pointer activation. Keep dialog return-focus
+        // and keyboard continuation consistent with other browsers, without scrolling.
+        event.currentTarget.focus({ preventScroll: true });
+        onClick?.(event);
+      }}
+    />
+  );
 }

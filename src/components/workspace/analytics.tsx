@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
 import { Activity } from "lucide-react";
+import { motion } from "motion/react";
+import { useMotionPreferences } from "../ui/motion";
 import {
   ResponsiveContainer,
   LineChart,
@@ -26,19 +28,28 @@ export function Metric({
   note: string;
   icon: ReactNode;
 }) {
+  const { reduced } = useMotionPreferences();
   return (
     <div className="metric card">
       <div className="metric-label">
         {label}
         {icon}
       </div>
-      <div className="metric-value">{value}</div>
+      <motion.div
+        className="metric-value"
+        key={value}
+        initial={reduced ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        {value}
+      </motion.div>
       <p>{sub}</p>
       <small>{note}</small>
     </div>
   );
 }
 export function Comparison({ detail, t }: { detail: RunDetail | null; t: Translate }) {
+  const { reduced } = useMotionPreferences();
   if (!detail || !detail.run.valid)
     return (
       <Empty title={t("Pas encore de comparaison", "No comparison yet")}>
@@ -67,9 +78,11 @@ export function Comparison({ detail, t }: { detail: RunDetail | null; t: Transla
               </span>
             </div>
             <div className="bar-track">
-              <div
+              <motion.div
                 className={b.is_primary ? "bar-primary" : "bar-competitor"}
-                style={{ width: `${p}%` }}
+                initial={reduced ? false : { width: "0%" }}
+                animate={{ width: `${p}%` }}
+                transition={{ duration: reduced ? 0 : 0.85 }}
               />
             </div>
           </div>
@@ -96,6 +109,7 @@ export function HistoryChart({
   t: Translate;
   date: (s: string) => string;
 }) {
+  const { reduced } = useMotionPreferences();
   const [points, setPoints] = useState<{ date: string; rate: number | null; n: number }[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -121,13 +135,17 @@ export function HistoryChart({
     )
       .then((p) => {
         if (!cancelled)
-          setPoints(
-            p.filter(
-              (point) =>
-                point.signature !== null &&
-                point.signature === comparisonSignature(detail?.responses ?? []),
-            ),
-          );
+          setPoints((previous) => {
+            const next = p
+              .filter(
+                (point) =>
+                  point.signature !== null &&
+                  point.signature === comparisonSignature(detail?.responses ?? []),
+              )
+              .map(({ date, rate, n }) => ({ date, rate, n }));
+            // Preserve chart data identity when polling returns the same measurements.
+            return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+          });
       })
       .catch(() => {
         if (!cancelled) setPoints([]);
@@ -186,7 +204,8 @@ export function HistoryChart({
             strokeWidth={2.5}
             dot={{ r: 4, fill: "var(--accent)" }}
             connectNulls={false}
-            isAnimationActive={false}
+            isAnimationActive={!reduced}
+            animationDuration={800}
           />
         </LineChart>
       </ResponsiveContainer>

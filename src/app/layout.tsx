@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { MotionProvider, AmbientBackground } from "@/components/ui/motion";
+import "@fontsource-variable/manrope";
 import "./globals.css";
 export const metadata: Metadata = {
   title: "AI Visibility OS",
@@ -8,8 +10,20 @@ export const metadata: Metadata = {
 };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="fr">
-      <body>{children}</body>
+    <html lang="fr" data-theme="dark" data-motion="reduced" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var d=document.documentElement;d.dataset.theme=localStorage.getItem('avos-theme')==='light'?'light':'dark';d.lang=localStorage.getItem('avos-lang')==='en'?'en':'fr';d.dataset.motion=localStorage.getItem('avos-motion')==='paused'||matchMedia('(prefers-reduced-motion: reduce)').matches?'reduced':'full'}catch(e){}})()`,
+          }}
+        />
+      </head>
+      <body>
+        <MotionProvider>
+          <AmbientBackground />
+          {children}
+        </MotionProvider>
+      </body>
     </html>
   );
 }

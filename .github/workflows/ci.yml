@@ -29,7 +29,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
   docker:
     runs-on: ubuntu-latest
@@ -45,6 +45,7 @@ jobs:
       - run: npx tsx scripts/docker-smoke.ts
       - run: docker compose exec -T web test -f node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff
       - run: docker compose exec -T web test -f node_modules/@fontsource/noto-sans/LICENSE
+      - run: docker compose exec -T web test -f node_modules/@fontsource-variable/manrope/LICENSE
       - name: Verify backup restoration into a separate database
         run: |
           bash scripts/backup.sh

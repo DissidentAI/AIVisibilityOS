@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
+  Pause,
   ArrowDownToLine,
   ArrowRight,
   Check,
@@ -32,6 +33,9 @@ import {
   FileText,
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { motion } from "motion/react";
+import { PageTransition, useMotionPreferences } from "./ui/motion";
+import { useMobileNavigation } from "./ui/use-mobile-navigation";
 import { mentionRate } from "@/lib/measurement";
 import type { State, Run, RunDetail, ResponseRecord } from "@/lib/types";
 import {
@@ -62,7 +66,9 @@ type Tab =
   | "reports";
 export function Workspace() {
   const [lang, setLang] = useState<"fr" | "en">("fr"),
-    [dark, setDark] = useState(false);
+    [dark, setDark] = useState(true);
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const { reduced, paused, systemReduced, toggle: toggleMotion } = useMotionPreferences();
   const t: Translate = (fr, en) => (lang === "fr" ? fr : en);
   const [state, setState] = useState<State | null>(null),
     [loading, setLoading] = useState(true),
@@ -80,21 +86,27 @@ export function Workspace() {
       "project" | "run" | "credential" | "query" | "brand" | "delete" | null
     >(null),
     [response, setResponse] = useState<ResponseRecord | null>(null);
+  const { sidebarRef, shellRef, triggerRef, isMobile } = useMobileNavigation(mobile, () =>
+    setMobile(false),
+  );
   const project = state?.projects.find((p) => p.id === projectId);
   const activeRequest = useRef(0);
   useEffect(() => {
-    const saved = localStorage.getItem("avos-lang");
-    if (saved === "en") setLang("en");
-    setDark(localStorage.getItem("avos-theme") === "dark");
+    setLang(document.documentElement.lang === "en" ? "en" : "fr");
+    setDark(document.documentElement.dataset.theme !== "light");
+    setPreferencesReady(true);
   }, []);
   useEffect(() => {
+    if (!preferencesReady) return;
     document.documentElement.lang = lang;
-    localStorage.setItem("avos-lang", lang);
-  }, [lang]);
-  useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
-    localStorage.setItem("avos-theme", dark ? "dark" : "light");
-  }, [dark]);
+    try {
+      localStorage.setItem("avos-lang", lang);
+      localStorage.setItem("avos-theme", dark ? "dark" : "light");
+    } catch {
+      // Browser storage is optional; settings still work for this visit.
+    }
+  }, [lang, dark, preferencesReady]);
   const refresh = useCallback(async () => {
     const s = await api<State>("state");
     setState(s);
@@ -196,6 +208,23 @@ export function Workspace() {
       <Button
         variant="ghost"
         size="icon"
+        onClick={toggleMotion}
+        disabled={systemReduced}
+        aria-pressed={!reduced}
+        aria-label={t("Animations", "Animations")}
+        title={
+          systemReduced
+            ? t("Animations réduites selon votre appareil", "Reduced motion follows your device")
+            : paused
+              ? t("Activer les animations", "Enable animations")
+              : t("Mettre les animations en pause", "Pause animations")
+        }
+      >
+        {reduced ? <Play size={16} /> : <Pause size={16} />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
         onClick={() => setDark(!dark)}
         aria-label={t("Changer de thème", "Toggle theme")}
       >
@@ -212,8 +241,8 @@ export function Workspace() {
   );
   if (loading)
     return (
-      <main className="auth">
-        <div className="loading-mark">
+      <main className="auth" aria-busy="true">
+        <div className="loading-mark" role="status">
           <Radio size={32} />
           <p>{t("Ouverture de votre espace…", "Opening your workspace…")}</p>
         </div>
@@ -221,7 +250,7 @@ export function Workspace() {
     );
   if (!state)
     return (
-      <main className="auth">
+      <main className="auth auth-screen">
         <div className="auth-controls">{controls}</div>
         <div className="auth-brand">
           <div className="logo">
@@ -231,88 +260,146 @@ export function Workspace() {
             AI Visibility <b>OS</b>
           </span>
         </div>
-        <div className="card auth-card">
-          <span className="eyebrow">COMMUNITY EDITION</span>
-          <h1>
-            {setup
-              ? t("Votre visibilité, vos preuves.", "Your visibility. Your evidence.")
-              : t("Bienvenue dans votre espace.", "Welcome to your workspace.")}
-          </h1>
-          <p className="muted">
-            {setup
-              ? t(
-                  "Créez le compte propriétaire de cette installation pour commencer à mesurer.",
-                  "Create this installation’s owner account to start measuring.",
-                )
-              : t(
-                  "Connectez-vous pour retrouver vos projets et vos mesures.",
-                  "Sign in to access your projects and measurements.",
-                )}
-          </p>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const data = new FormData(e.currentTarget);
-              setBusy(true);
-              setError("");
-              try {
-                await api(`auth/${setup ? "register" : "login"}`, "POST", Object.fromEntries(data));
-                await refresh();
-              } catch (err) {
-                setError((err as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <Field label={t("Adresse e-mail", "Email address")}>
-              <input
-                type="email"
-                name="email"
-                required
-                maxLength={254}
-                autoComplete="username"
-                placeholder="vous@agence.fr"
-              />
-            </Field>
-            <Field
-              label={t("Mot de passe", "Password")}
-              hint={t("12 caractères minimum.", "At least 12 characters.")}
+        <div className="auth-layout">
+          <section className="auth-story">
+            <span className="edition-pill">
+              <span /> {t("L’OBSERVATOIRE DE VOTRE MARQUE", "YOUR BRAND OBSERVATORY")}
+            </span>
+            <h2>
+              {t("Entrez dans", "Become part of")}
+              <br />
+              <em>{t("la conversation.", "the conversation.")}</em>
+            </h2>
+            <p>
+              {t(
+                "Les IA parlent de votre secteur. Découvrez la place qu’elles donnent à votre marque, avec les réponses pour le prouver.",
+                "AI is talking about your industry. Discover your brand’s place in the conversation, with the responses to prove it.",
+              )}
+            </p>
+            <div className="signal-art" aria-hidden="true">
+              <div className="signal-orbit orbit-one">
+                <i />
+              </div>
+              <div className="signal-orbit orbit-two">
+                <i />
+              </div>
+              <div className="signal-orbit orbit-three" />
+              <div className="signal-core">
+                <Radio size={40} strokeWidth={1.3} />
+                <span>AI VISIBILITY</span>
+              </div>
+              <span className="signal-chip chip-one">
+                <MessageSquareText size={14} /> {t("Mentions", "Mentions")}
+              </span>
+              <span className="signal-chip chip-two">
+                <Globe2 size={14} /> {t("Sources vérifiables", "Verifiable sources")}
+              </span>
+              <span className="signal-chip chip-three">
+                <ShieldCheck size={14} /> {t("Vos données", "Your data")}
+              </span>
+            </div>
+            <div className="auth-principles">
+              <span>
+                <b>01</b> {t("Mesurez", "Measure")}
+              </span>
+              <span>
+                <b>02</b> {t("Comparez", "Compare")}
+              </span>
+              <span>
+                <b>03</b> {t("Prouvez", "Prove")}
+              </span>
+            </div>
+          </section>
+          <div className="card auth-card">
+            <div className="auth-card-heading">
+              <span className="eyebrow">COMMUNITY EDITION</span>
+              <ShieldCheck size={18} />
+            </div>
+            <h1>
+              {setup
+                ? t("Votre visibilité, vos preuves.", "Your visibility. Your evidence.")
+                : t("Bienvenue dans votre espace.", "Welcome to your workspace.")}
+            </h1>
+            <p className="muted">
+              {setup
+                ? t(
+                    "Créez le compte propriétaire de cette installation pour commencer à mesurer.",
+                    "Create this installation’s owner account to start measuring.",
+                  )
+                : t(
+                    "Connectez-vous pour retrouver vos projets et vos mesures.",
+                    "Sign in to access your projects and measurements.",
+                  )}
+            </p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const data = new FormData(e.currentTarget);
+                setBusy(true);
+                setError("");
+                try {
+                  await api(
+                    `auth/${setup ? "register" : "login"}`,
+                    "POST",
+                    Object.fromEntries(data),
+                  );
+                  await refresh();
+                } catch (err) {
+                  setError((err as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
             >
-              <input
-                type="password"
-                name="password"
-                required
-                minLength={12}
-                maxLength={128}
-                autoComplete={setup ? "new-password" : "current-password"}
-              />
-            </Field>
-            {setup && (
-              <Field
-                label={t("Code d’installation", "Setup code")}
-                hint={t(
-                  "La valeur BOOTSTRAP_TOKEN dans votre fichier .env.",
-                  "The BOOTSTRAP_TOKEN value in your .env file.",
-                )}
-              >
-                <input type="password" name="bootstrapToken" required autoComplete="off" />
+              <Field label={t("Adresse e-mail", "Email address")}>
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  maxLength={254}
+                  autoComplete="username"
+                  placeholder="vous@agence.fr"
+                />
               </Field>
-            )}
-            {error && (
-              <p role="alert" className="alert error">
-                {friendly(error, t)}
-              </p>
-            )}
-            <Button className="full" disabled={busy}>
-              {busy
-                ? t("Connexion…", "Connecting…")
-                : setup
-                  ? t("Créer mon espace", "Create workspace")
-                  : t("Se connecter", "Sign in")}
-              <ArrowRight size={16} />
-            </Button>
-          </form>
+              <Field
+                label={t("Mot de passe", "Password")}
+                hint={t("12 caractères minimum.", "At least 12 characters.")}
+              >
+                <input
+                  type="password"
+                  name="password"
+                  required
+                  minLength={12}
+                  maxLength={128}
+                  autoComplete={setup ? "new-password" : "current-password"}
+                />
+              </Field>
+              {setup && (
+                <Field
+                  label={t("Code d’installation", "Setup code")}
+                  hint={t(
+                    "Le code privé fourni par l’administrateur de cette installation.",
+                    "The private code provided by this installation’s administrator.",
+                  )}
+                >
+                  <input type="password" name="bootstrapToken" required autoComplete="off" />
+                </Field>
+              )}
+              {error && (
+                <p role="alert" className="alert error">
+                  {friendly(error, t)}
+                </p>
+              )}
+              <Button className="full" disabled={busy}>
+                {busy
+                  ? t("Connexion…", "Connecting…")
+                  : setup
+                    ? t("Créer mon espace", "Create workspace")
+                    : t("Se connecter", "Sign in")}
+                <ArrowRight size={16} />
+              </Button>
+            </form>
+          </div>
         </div>
         <p className="auth-foot">
           <ShieldCheck size={15} />
@@ -326,7 +413,26 @@ export function Workspace() {
   return (
     <ModalError.Provider value={error ? friendly(error, t) : ""}>
       <div className="workspace">
-        <aside className={`sidebar ${mobile ? "sidebar-open" : ""}`}>
+        <a href="#main-content" className="skip-link">
+          {t("Aller au contenu", "Skip to content")}
+        </a>
+        <aside
+          ref={sidebarRef}
+          id="workspace-navigation"
+          className={`sidebar ${mobile ? "sidebar-open" : ""}`}
+          role={isMobile ? "dialog" : undefined}
+          aria-modal={isMobile && mobile ? true : undefined}
+          aria-label={t("Navigation principale", "Main navigation")}
+        >
+          <Button
+            className="drawer-close"
+            variant="ghost"
+            size="icon"
+            aria-label={t("Fermer le menu", "Close menu")}
+            onClick={() => setMobile(false)}
+          >
+            <X size={19} />
+          </Button>
           <a className="brand" href="/">
             <div className="logo">
               <Radio size={21} />
@@ -345,18 +451,32 @@ export function Workspace() {
             <span className="badge">OSS</span>
           </div>
           <div className="nav-label">{t("ANALYSE", "ANALYTICS")}</div>
-          <nav>
-            {nav.map((item, i) => (
+          <nav aria-label={t("Pages de l’espace", "Workspace pages")}>
+            {nav.map((item) => (
               <button
                 key={item.id}
+                aria-label={item.title}
                 className={`nav-item ${tab === item.id ? "active" : ""} ${item.id === "settings" ? "nav-separated" : ""}`}
+                aria-current={tab === item.id ? "page" : undefined}
                 onClick={() => {
                   setTab(item.id);
                   setMobile(false);
                 }}
               >
+                {tab === item.id && (
+                  <motion.span
+                    className="nav-highlight"
+                    layoutId="active-navigation"
+                    transition={{
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 38,
+                      duration: reduced ? 0 : undefined,
+                    }}
+                  />
+                )}
                 <item.icon size={18} />
-                {item.title}
+                <span className="nav-title">{item.title}</span>
                 {item.id === "queries" && project && (
                   <span className="nav-count">{project.queries.length}</span>
                 )}
@@ -403,15 +523,18 @@ export function Workspace() {
         {mobile && (
           <button
             className="sidebar-scrim"
-            aria-label="Close menu"
+            aria-label={t("Fermer la navigation", "Dismiss navigation")}
             onClick={() => setMobile(false)}
           />
         )}
-        <div className="main-shell">
+        <div className="main-shell" ref={shellRef}>
           <header className="topbar">
             <div className="topbar-left">
               <Button
                 className="mobile-menu"
+                ref={triggerRef}
+                aria-expanded={mobile}
+                aria-controls="workspace-navigation"
                 variant="ghost"
                 size="icon"
                 onClick={() => setMobile(!mobile)}
@@ -433,13 +556,21 @@ export function Workspace() {
               {controls}
             </div>
           </header>
-          <main className="content">
+          <main className="content" id="main-content" tabIndex={-1}>
             <div className="page-heading">
               <div>
                 <span className="eyebrow">
                   AI VISIBILITY OS / {t("OBSERVATOIRE", "OBSERVATORY")}
                 </span>
-                <h1>{nav.find((n) => n.id === tab)?.title}</h1>
+                <h1>
+                  <motion.span
+                    key={tab}
+                    initial={reduced ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    {nav.find((n) => n.id === tab)?.title}
+                  </motion.span>
+                </h1>
                 <p className="muted">
                   {t(
                     "Comprenez comment votre marque apparaît dans les réponses IA mesurées.",
@@ -509,730 +640,743 @@ export function Workspace() {
                 )}
               </span>
             </div>
-            {!["settings", "usage"].includes(tab) && !project ? (
-              <div className="card welcome">
-                <span className="step-tag">01 — {t("PREMIER PROJET", "FIRST PROJECT")}</span>
-                <h2>
-                  {t(
-                    "Votre marque est-elle dans la conversation ?",
-                    "Is your brand part of the conversation?",
-                  )}
-                </h2>
-                <p className="muted">
-                  {t(
-                    "Ajoutez une marque, ses concurrents et les questions de vos clients. Connectez vos clés API pour obtenir vos premières réponses réelles.",
-                    "Add a brand, its competitors and your customers’ questions. Connect your API keys to collect your first real responses.",
-                  )}
-                </p>
-                <Button onClick={() => setModal("project")}>
-                  {t("Configurer mon premier projet", "Set up my first project")}
-                  <ArrowRight size={16} />
-                </Button>
-                <div className="welcome-steps">
-                  {[
-                    t("Définir les questions", "Define questions"),
-                    t("Collecter les réponses", "Collect responses"),
-                    t("Vérifier les mentions", "Verify mentions"),
-                  ].map((s, i) => (
-                    <div key={s}>
-                      <span>0{i + 1}</span>
-                      <strong>{s}</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {project && !["settings", "usage"].includes(tab) && (
-              <>
-                <div className="section-toolbar">
-                  <div className="inline">
-                    <span className="section-kicker">{t("CAMPAGNE", "CAMPAIGN")}</span>
-                    <select
-                      className="select-subtle"
-                      aria-label={t("Campagne sélectionnée", "Selected campaign")}
-                      value={detail?.run.id ?? ""}
-                      onChange={(e) => setRunId(e.target.value)}
-                    >
-                      {!runs.length && (
-                        <option value="">{t("Aucune mesure", "No measurements")}</option>
-                      )}
-                      {runs.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {date(r.created_at)} ·{" "}
-                          {r.snapshot.parameters.search ? t("Web", "Web") : t("Sans web", "No web")}{" "}
-                          · {r.valid}/{r.total}
-                        </option>
-                      ))}
-                    </select>
+            <PageTransition key={tab}>
+              {!["settings", "usage"].includes(tab) && !project ? (
+                <div className="card welcome">
+                  <span className="step-tag">01 — {t("PREMIER PROJET", "FIRST PROJECT")}</span>
+                  <h2>
+                    {t(
+                      "Votre marque est-elle dans la conversation ?",
+                      "Is your brand part of the conversation?",
+                    )}
+                  </h2>
+                  <p className="muted">
+                    {t(
+                      "Ajoutez une marque, ses concurrents et les questions de vos clients. Connectez vos clés API pour obtenir vos premières réponses réelles.",
+                      "Add a brand, its competitors and your customers’ questions. Connect your API keys to collect your first real responses.",
+                    )}
+                  </p>
+                  <Button onClick={() => setModal("project")}>
+                    {t("Configurer mon premier projet", "Set up my first project")}
+                    <ArrowRight size={16} />
+                  </Button>
+                  <div className="welcome-steps">
+                    {[
+                      t("Définir les questions", "Define questions"),
+                      t("Collecter les réponses", "Collect responses"),
+                      t("Vérifier les mentions", "Verify mentions"),
+                    ].map((s, i) => (
+                      <div key={s}>
+                        <span>0{i + 1}</span>
+                        <strong>{s}</strong>
+                      </div>
+                    ))}
                   </div>
-                  {detail && (
-                    <a className="text-link" href={`/api/runs/${detail.run.id}/export`}>
-                      <ArrowDownToLine size={15} />
-                      CSV
-                    </a>
-                  )}
                 </div>
-                {tab === "schedules" && (
-                  <SchedulesPanel
-                    key={project.id}
-                    project={project}
-                    state={state}
-                    t={t}
-                    date={date}
-                    onRun={(id) => {
-                      setRunId(id);
-                      setTab("history");
-                    }}
-                  />
-                )}
-                {tab === "reports" && (
-                  <ReportsPanel
-                    key={project.id}
-                    project={project}
-                    detail={detail}
-                    runs={runs}
-                    t={t}
-                    locale={lang}
-                    date={date}
-                  />
-                )}
-                {tab === "overview" && (
-                  <>
-                    <div className="stats-grid">
-                      <Metric
-                        label="Visibility Score"
-                        value={metric.rate == null ? "—" : `${metric.rate.toFixed(1)}%`}
-                        icon={<Activity size={18} />}
-                        note={t(
-                          "Taux de mention explicite · formule v1",
-                          "Explicit mention rate · formula v1",
+              ) : null}
+              {project && !["settings", "usage"].includes(tab) && (
+                <>
+                  <div className="section-toolbar">
+                    <div className="inline">
+                      <span className="section-kicker">{t("CAMPAGNE", "CAMPAIGN")}</span>
+                      <select
+                        className="select-subtle"
+                        aria-label={t("Campagne sélectionnée", "Selected campaign")}
+                        value={detail?.run.id ?? ""}
+                        onChange={(e) => setRunId(e.target.value)}
+                      >
+                        {!runs.length && (
+                          <option value="">{t("Aucune mesure", "No measurements")}</option>
                         )}
-                        sub={
-                          valid.length
-                            ? `${count} / ${valid.length} ${t("réponses valides", "valid responses")}`
-                            : t("Aucune réponse valide", "No valid responses")
-                        }
-                      />
-                      <Metric
-                        label={t("Réponses valides", "Valid responses")}
-                        value={detail ? String(valid.length) : "—"}
-                        icon={<MessageSquareText size={18} />}
-                        note={t(
-                          "Les échecs sont exclus du dénominateur",
-                          "Failures are excluded from the denominator",
-                        )}
-                        sub={
-                          detail
-                            ? `${detail.run.total} ${t("prévues", "planned")} · ${detail.run.pending} ${t("en attente", "pending")}`
-                            : t(
-                                "En attente de la première campagne",
-                                "Awaiting your first campaign",
-                              )
-                        }
-                      />
-                      <Metric
-                        label={t("Marques comparées", "Brands compared")}
-                        value={String(detail?.run.snapshot.brands.length ?? project.brands.length)}
-                        icon={<Users size={18} />}
-                        note={t(
-                          "Même échantillon pour chaque marque",
-                          "The same sample for every brand",
-                        )}
-                        sub={t("Marque principale + concurrents", "Primary brand + competitors")}
-                      />
-                      <Metric
-                        label={t("Coût API estimé", "Estimated API cost")}
-                        value={
-                          detail
-                            ? money(detail.responses.reduce((s, r) => s + (r.cost_micros ?? 0), 0))
-                            : "—"
-                        }
-                        icon={<Wallet size={18} />}
-                        note={t("USD · consommation connue uniquement", "USD · known usage only")}
-                        sub={
-                          detail?.responses.some(
-                            (r) => r.status !== "queued" && r.cost_micros === null,
-                          )
-                            ? t("Des coûts restent inconnus", "Some costs remain unknown")
-                            : t("Tarifs de référence, hors taxes", "Reference prices, before tax")
-                        }
-                      />
+                        {runs.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {date(r.created_at)} ·{" "}
+                            {r.snapshot.parameters.search
+                              ? t("Web", "Web")
+                              : t("Sans web", "No web")}{" "}
+                            · {r.valid}/{r.total}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+                    {detail && (
+                      <a className="text-link" href={`/api/runs/${detail.run.id}/export`}>
+                        <ArrowDownToLine size={15} />
+                        CSV
+                      </a>
+                    )}
+                  </div>
+                  {tab === "schedules" && (
+                    <SchedulesPanel
+                      key={project.id}
+                      project={project}
+                      state={state}
+                      t={t}
+                      date={date}
+                      onRun={(id) => {
+                        setRunId(id);
+                        setTab("history");
+                      }}
+                    />
+                  )}
+                  {tab === "reports" && (
+                    <ReportsPanel
+                      key={project.id}
+                      project={project}
+                      detail={detail}
+                      runs={runs}
+                      t={t}
+                      locale={lang}
+                      date={date}
+                    />
+                  )}
+                  {tab === "overview" && (
+                    <>
+                      <div className="stats-grid">
+                        <Metric
+                          label="Visibility Score"
+                          value={metric.rate == null ? "—" : `${metric.rate.toFixed(1)}%`}
+                          icon={<Activity size={18} />}
+                          note={t(
+                            "Taux de mention explicite · formule v1",
+                            "Explicit mention rate · formula v1",
+                          )}
+                          sub={
+                            valid.length
+                              ? `${count} / ${valid.length} ${t("réponses valides", "valid responses")}`
+                              : t("Aucune réponse valide", "No valid responses")
+                          }
+                        />
+                        <Metric
+                          label={t("Réponses valides", "Valid responses")}
+                          value={detail ? String(valid.length) : "—"}
+                          icon={<MessageSquareText size={18} />}
+                          note={t(
+                            "Les échecs sont exclus du dénominateur",
+                            "Failures are excluded from the denominator",
+                          )}
+                          sub={
+                            detail
+                              ? `${detail.run.total} ${t("prévues", "planned")} · ${detail.run.pending} ${t("en attente", "pending")}`
+                              : t(
+                                  "En attente de la première campagne",
+                                  "Awaiting your first campaign",
+                                )
+                          }
+                        />
+                        <Metric
+                          label={t("Marques comparées", "Brands compared")}
+                          value={String(
+                            detail?.run.snapshot.brands.length ?? project.brands.length,
+                          )}
+                          icon={<Users size={18} />}
+                          note={t(
+                            "Même échantillon pour chaque marque",
+                            "The same sample for every brand",
+                          )}
+                          sub={t("Marque principale + concurrents", "Primary brand + competitors")}
+                        />
+                        <Metric
+                          label={t("Coût API estimé", "Estimated API cost")}
+                          value={
+                            detail
+                              ? money(
+                                  detail.responses.reduce((s, r) => s + (r.cost_micros ?? 0), 0),
+                                )
+                              : "—"
+                          }
+                          icon={<Wallet size={18} />}
+                          note={t("USD · consommation connue uniquement", "USD · known usage only")}
+                          sub={
+                            detail?.responses.some(
+                              (r) => r.status !== "queued" && r.cost_micros === null,
+                            )
+                              ? t("Des coûts restent inconnus", "Some costs remain unknown")
+                              : t("Tarifs de référence, hors taxes", "Reference prices, before tax")
+                          }
+                        />
+                      </div>
+                      <div className="analytics-grid">
+                        <section className="card">
+                          <div className="card-heading">
+                            <div>
+                              <h2>{t("Visibilité dans le temps", "Visibility over time")}</h2>
+                              <p>
+                                {t(
+                                  "Campagnes complètes, configuration et modèles identiques",
+                                  "Complete campaigns with identical configuration and models",
+                                )}
+                              </p>
+                            </div>
+                            <span className="badge">{t("Taux de mention", "Mention rate")}</span>
+                          </div>
+                          <HistoryChart runs={runs} detail={detail} t={t} date={date} />
+                        </section>
+                        <section className="card">
+                          <div className="card-heading">
+                            <div>
+                              <h2>{t("Part de présence", "Brand presence")}</h2>
+                              <p>
+                                {t(
+                                  "Mentions dans les réponses valides",
+                                  "Mentions in valid responses",
+                                )}
+                              </p>
+                            </div>
+                            <Users size={17} />
+                          </div>
+                          <Comparison detail={detail} t={t} />
+                        </section>
+                      </div>
+                      <section className="card">
+                        <div className="card-heading">
+                          <div>
+                            <h2>{t("Détail par fournisseur", "Provider breakdown")}</h2>
+                            <p>
+                              {t(
+                                "Chaque canal est mesuré et identifié séparément",
+                                "Each channel is measured and identified separately",
+                              )}
+                            </p>
+                          </div>
+                          <span className="badge">OFFICIAL API</span>
+                        </div>
+                        {detail ? (
+                          <div className="table-wrap">
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>{t("Fournisseur / modèle", "Provider / model")}</th>
+                                  <th>{t("Réponses valides", "Valid responses")}</th>
+                                  <th>{t("Mentions de la marque", "Brand mentions")}</th>
+                                  <th>{t("Taux observé", "Observed rate")}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {detail.run.snapshot.providers.map((pr) => {
+                                  const rows = valid.filter((r) => r.provider === pr),
+                                    ids = new Set(rows.map((r) => r.id)),
+                                    n = new Set(
+                                      detail.mentions
+                                        .filter(
+                                          (m) =>
+                                            m.brand_id === primary?.id && ids.has(m.response_id),
+                                        )
+                                        .map((m) => m.response_id),
+                                    ).size;
+                                  return (
+                                    <tr key={pr}>
+                                      <td>
+                                        <strong>
+                                          {pr === "openai" ? "OpenAI" : "Google Gemini"}
+                                        </strong>
+                                        <small className="block muted mono">
+                                          {detail.run.snapshot.models[pr]}
+                                        </small>
+                                      </td>
+                                      <td>{rows.length}</td>
+                                      <td>
+                                        {n} / {rows.length}
+                                      </td>
+                                      <td>
+                                        {rows.length
+                                          ? `${((100 * n) / rows.length).toFixed(1)}%`
+                                          : "—"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <Empty title={t("Les preuves commencent ici", "Evidence starts here")}>
+                            {t(
+                              "Connectez au moins un fournisseur et lancez une campagne. Aucun résultat de démonstration n’est affiché.",
+                              "Connect at least one provider and start a campaign. No demo results are displayed.",
+                            )}
+                          </Empty>
+                        )}
+                      </section>
+                      <details className="methodology">
+                        <summary>
+                          <ShieldCheck size={16} />
+                          {t(
+                            "Méthodologie et limites de cette mesure",
+                            "Methodology and measurement limits",
+                          )}
+                        </summary>
+                        <p>
+                          {t(
+                            "Visibility Score = Brand Mention Rate = 100 × réponses valides mentionnant explicitement la marque / nombre de réponses valides. Une marque est comptée au plus une fois par réponse. Une mention ne signifie pas une recommandation.",
+                            "Visibility Score = Brand Mention Rate = 100 × valid responses explicitly mentioning the brand / valid responses. Each brand is counted at most once per response. A mention is not an endorsement.",
+                          )}
+                        </p>
+                        <p>
+                          {metric.low != null
+                            ? `${t("Intervalle de Wilson à 95 %", "95% Wilson interval")} : ${metric.low.toFixed(1)}–${metric.high!.toFixed(1)} %. `
+                            : ""}
+                          {t(
+                            "L’intervalle décrit l’incertitude d’échantillonnage sous hypothèse d’indépendance. Les réponses peuvent être corrélées ; ce résultat ne représente pas toute la visibilité sur Internet. Pas de recherche web activée, pas de classement inventé.",
+                            "The interval describes sampling uncertainty under an independence assumption. Responses may be correlated; this does not represent overall Internet visibility. Web search is not enabled. No invented rankings.",
+                          )}
+                        </p>
+                      </details>
+                    </>
+                  )}
+                  {tab === "queries" && (
+                    <section className="card">
+                      <div className="card-heading">
+                        <div>
+                          <h2>{t("Les questions de vos clients", "Your customers’ questions")}</h2>
+                          <p>
+                            {project.queries.length}/50{" "}
+                            {t("requêtes configurées", "configured queries")}
+                          </p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => setModal("query")}>
+                          <Plus size={14} />
+                          {t("Ajouter", "Add")}
+                        </Button>
+                      </div>
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>{t("Requête", "Query")}</th>
+                              <th>{t("Échantillon valide", "Valid sample")}</th>
+                              <th>{t("Présence de la marque", "Brand presence")}</th>
+                              <th />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {project.queries.map((q) => {
+                              const rows = valid.filter((r) => r.query_text === q.text),
+                                ids = new Set(rows.map((r) => r.id)),
+                                n = new Set(
+                                  detail?.mentions
+                                    .filter(
+                                      (m) => ids.has(m.response_id) && m.brand_id === primary?.id,
+                                    )
+                                    .map((m) => m.response_id),
+                                ).size;
+                              return (
+                                <tr key={q.id}>
+                                  <td className="question-cell">{q.text}</td>
+                                  <td>{rows.length || "—"}</td>
+                                  <td>{rows.length ? `${n} / ${rows.length}` : "—"}</td>
+                                  <td>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      disabled={busy}
+                                      aria-label={t("Retirer la requête", "Remove query")}
+                                      onClick={() => act(() => api(`queries/${q.id}`, "DELETE"))}
+                                    >
+                                      <Trash2 size={14} />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="card-note">
+                        {t(
+                          "Les changements s’appliquent à la prochaine campagne. Les campagnes passées gardent leur configuration d’origine.",
+                          "Changes apply to the next campaign. Past campaigns retain their original configuration.",
+                        )}
+                      </div>
+                    </section>
+                  )}
+                  {tab === "competitors" && (
                     <div className="analytics-grid">
                       <section className="card">
                         <div className="card-heading">
                           <div>
-                            <h2>{t("Visibilité dans le temps", "Visibility over time")}</h2>
-                            <p>
-                              {t(
-                                "Campagnes complètes, configuration et modèles identiques",
-                                "Complete campaigns with identical configuration and models",
-                              )}
-                            </p>
+                            <h2>{t("Marques suivies", "Tracked brands")}</h2>
+                            <p>{t("Noms explicites et domaines", "Explicit names and domains")}</p>
                           </div>
-                          <span className="badge">{t("Taux de mention", "Mention rate")}</span>
+                          <Button size="sm" variant="outline" onClick={() => setModal("brand")}>
+                            <Plus size={14} />
+                            {t("Ajouter", "Add")}
+                          </Button>
                         </div>
-                        <HistoryChart runs={runs} detail={detail} t={t} date={date} />
+                        {project.brands.map((b) => (
+                          <div className="brand-line" key={b.id}>
+                            <div className="avatar">{b.name[0].toUpperCase()}</div>
+                            <div className="grow">
+                              <strong>{b.name}</strong>
+                              <small className="block muted">{b.domain}</small>
+                            </div>
+                            {b.is_primary ? (
+                              <span className="badge green">{t("Votre marque", "Your brand")}</span>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={busy}
+                                aria-label={t("Retirer le concurrent", "Remove competitor")}
+                                onClick={() => act(() => api(`brands/${b.id}`, "DELETE"))}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
                       </section>
                       <section className="card">
                         <div className="card-heading">
                           <div>
-                            <h2>{t("Part de présence", "Brand presence")}</h2>
+                            <h2>{t("Comparaison observée", "Observed comparison")}</h2>
                             <p>
                               {t(
-                                "Mentions dans les réponses valides",
-                                "Mentions in valid responses",
+                                "Un dénominateur commun, des preuves accessibles",
+                                "Shared denominator, accessible evidence",
                               )}
                             </p>
                           </div>
-                          <Users size={17} />
                         </div>
                         <Comparison detail={detail} t={t} />
                       </section>
                     </div>
+                  )}
+                  {tab === "sources" && (
                     <section className="card">
                       <div className="card-heading">
                         <div>
-                          <h2>{t("Détail par fournisseur", "Provider breakdown")}</h2>
+                          <h2>
+                            {t("Sources effectivement retournées", "Sources actually returned")}
+                          </h2>
                           <p>
                             {t(
-                              "Chaque canal est mesuré et identifié séparément",
-                              "Each channel is measured and identified separately",
+                              "Uniquement les annotations structurées des fournisseurs",
+                              "Only structured provider annotations",
                             )}
                           </p>
                         </div>
-                        <span className="badge">OFFICIAL API</span>
+                        <Globe2 size={18} />
+                      </div>
+                      {detail?.citations.length ? (
+                        <div className="table-wrap">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>{t("Source", "Source")}</th>
+                                <th>{t("Provenance", "Provenance")}</th>
+                                <th>{t("Preuve", "Evidence")}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detail.citations.map((c, i) => (
+                                <tr key={i}>
+                                  <td>
+                                    <a
+                                      className="text-link"
+                                      href={c.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {c.title || c.domain}
+                                      <ExternalLink size={12} />
+                                    </a>
+                                    <small className="block muted">{c.domain}</small>
+                                  </td>
+                                  <td>{c.provenance}</td>
+                                  <td>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() =>
+                                        setResponse(
+                                          detail.responses.find((r) => r.id === c.response_id) ??
+                                            null,
+                                        )
+                                      }
+                                    >
+                                      {t("Voir la réponse", "View response")}
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <Empty
+                          icon={<Globe2 size={24} />}
+                          title={t("Aucune citation vérifiable", "No verifiable citations")}
+                        >
+                          {t(
+                            "Activez le mode avec recherche web pour collecter les citations disponibles. Les liens écrits librement dans les réponses ne sont pas considérés comme des citations vérifiées.",
+                            "Enable web search mode to collect available citations. Links written freely in response text are not treated as verified citations.",
+                          )}
+                        </Empty>
+                      )}
+                    </section>
+                  )}
+                  {tab === "history" && (
+                    <section className="card">
+                      <div className="card-heading">
+                        <div>
+                          <h2>{t("Journal des réponses", "Response ledger")}</h2>
+                          <p>
+                            {t(
+                              "Question exacte, modèle, statut et réponse intégrale",
+                              "Exact question, model, status and full response",
+                            )}
+                          </p>
+                        </div>
+                        <span className="badge">
+                          {detail?.responses.length ?? 0} {t("exécutions", "executions")}
+                        </span>
                       </div>
                       {detail ? (
                         <div className="table-wrap">
                           <table>
                             <thead>
                               <tr>
-                                <th>{t("Fournisseur / modèle", "Provider / model")}</th>
-                                <th>{t("Réponses valides", "Valid responses")}</th>
-                                <th>{t("Mentions de la marque", "Brand mentions")}</th>
-                                <th>{t("Taux observé", "Observed rate")}</th>
+                                <th>{t("Question", "Question")}</th>
+                                <th>{t("Fournisseur", "Provider")}</th>
+                                <th>{t("Statut", "Status")}</th>
+                                <th>{t("Coût estimé", "Est. cost")}</th>
+                                <th />
                               </tr>
                             </thead>
                             <tbody>
-                              {detail.run.snapshot.providers.map((pr) => {
-                                const rows = valid.filter((r) => r.provider === pr),
-                                  ids = new Set(rows.map((r) => r.id)),
-                                  n = new Set(
-                                    detail.mentions
-                                      .filter(
-                                        (m) => m.brand_id === primary?.id && ids.has(m.response_id),
-                                      )
-                                      .map((m) => m.response_id),
-                                  ).size;
-                                return (
-                                  <tr key={pr}>
-                                    <td>
-                                      <strong>
-                                        {pr === "openai" ? "OpenAI" : "Google Gemini"}
-                                      </strong>
-                                      <small className="block muted mono">
-                                        {detail.run.snapshot.models[pr]}
-                                      </small>
-                                    </td>
-                                    <td>{rows.length}</td>
-                                    <td>
-                                      {n} / {rows.length}
-                                    </td>
-                                    <td>
-                                      {rows.length
-                                        ? `${((100 * n) / rows.length).toFixed(1)}%`
-                                        : "—"}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
+                              {detail.responses.map((r) => (
+                                <tr key={r.id}>
+                                  <td className="question-cell">
+                                    {r.query_text}
+                                    <small className="block muted">
+                                      #{r.sample} ·{" "}
+                                      {r.finished_at
+                                        ? date(r.finished_at)
+                                        : t("En attente", "Pending")}
+                                    </small>
+                                  </td>
+                                  <td>
+                                    {r.provider}
+                                    <small className="block muted mono">
+                                      {r.returned_model || r.model}
+                                    </small>
+                                  </td>
+                                  <td>
+                                    <span
+                                      className={`badge ${r.status === "succeeded" ? "green" : ["failed", "invalid", "uncertain"].includes(r.status) ? "red" : ""}`}
+                                    >
+                                      {status(r.status)}
+                                    </span>
+                                  </td>
+                                  <td>{r.cost_micros == null ? "—" : money(r.cost_micros)}</td>
+                                  <td>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setResponse(r)}
+                                    >
+                                      {t("Ouvrir", "Open")}
+                                      <ArrowRight size={13} />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
                             </tbody>
                           </table>
                         </div>
                       ) : (
-                        <Empty title={t("Les preuves commencent ici", "Evidence starts here")}>
+                        <Empty title={t("Votre historique est vide", "Your history is empty")}>
                           {t(
-                            "Connectez au moins un fournisseur et lancez une campagne. Aucun résultat de démonstration n’est affiché.",
-                            "Connect at least one provider and start a campaign. No demo results are displayed.",
+                            "La première campagne apparaîtra ici dès son lancement.",
+                            "Your first campaign will appear here as soon as it starts.",
                           )}
                         </Empty>
                       )}
                     </section>
-                    <details className="methodology">
-                      <summary>
-                        <ShieldCheck size={16} />
-                        {t(
-                          "Méthodologie et limites de cette mesure",
-                          "Methodology and measurement limits",
-                        )}
-                      </summary>
-                      <p>
-                        {t(
-                          "Visibility Score = Brand Mention Rate = 100 × réponses valides mentionnant explicitement la marque / nombre de réponses valides. Une marque est comptée au plus une fois par réponse. Une mention ne signifie pas une recommandation.",
-                          "Visibility Score = Brand Mention Rate = 100 × valid responses explicitly mentioning the brand / valid responses. Each brand is counted at most once per response. A mention is not an endorsement.",
-                        )}
-                      </p>
-                      <p>
-                        {metric.low != null
-                          ? `${t("Intervalle de Wilson à 95 %", "95% Wilson interval")} : ${metric.low.toFixed(1)}–${metric.high!.toFixed(1)} %. `
-                          : ""}
-                        {t(
-                          "L’intervalle décrit l’incertitude d’échantillonnage sous hypothèse d’indépendance. Les réponses peuvent être corrélées ; ce résultat ne représente pas toute la visibilité sur Internet. Pas de recherche web activée, pas de classement inventé.",
-                          "The interval describes sampling uncertainty under an independence assumption. Responses may be correlated; this does not represent overall Internet visibility. Web search is not enabled. No invented rankings.",
-                        )}
-                      </p>
-                    </details>
-                  </>
-                )}
-                {tab === "queries" && (
+                  )}
+                </>
+              )}
+              {tab === "settings" && (
+                <>
                   <section className="card">
                     <div className="card-heading">
                       <div>
-                        <h2>{t("Les questions de vos clients", "Your customers’ questions")}</h2>
+                        <h2>{t("Connexions API", "API connections")}</h2>
                         <p>
-                          {project.queries.length}/50{" "}
-                          {t("requêtes configurées", "configured queries")}
+                          {t(
+                            "Vos propres clés, chiffrées sur le serveur",
+                            "Your own keys, encrypted on the server",
+                          )}
                         </p>
                       </div>
-                      <Button size="sm" variant="outline" onClick={() => setModal("query")}>
-                        <Plus size={14} />
-                        {t("Ajouter", "Add")}
+                      <Button variant="outline" onClick={() => setModal("credential")}>
+                        <KeyRound size={15} />
+                        {t("Connecter une clé", "Connect a key")}
                       </Button>
                     </div>
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t("Requête", "Query")}</th>
-                            <th>{t("Échantillon valide", "Valid sample")}</th>
-                            <th>{t("Présence de la marque", "Brand presence")}</th>
-                            <th />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {project.queries.map((q) => {
-                            const rows = valid.filter((r) => r.query_text === q.text),
-                              ids = new Set(rows.map((r) => r.id)),
-                              n = new Set(
-                                detail?.mentions
-                                  .filter(
-                                    (m) => ids.has(m.response_id) && m.brand_id === primary?.id,
-                                  )
-                                  .map((m) => m.response_id),
-                              ).size;
-                            return (
-                              <tr key={q.id}>
-                                <td className="question-cell">{q.text}</td>
-                                <td>{rows.length || "—"}</td>
-                                <td>{rows.length ? `${n} / ${rows.length}` : "—"}</td>
-                                <td>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    disabled={busy}
-                                    aria-label={t("Retirer la requête", "Remove query")}
-                                    onClick={() => act(() => api(`queries/${q.id}`, "DELETE"))}
-                                  >
-                                    <Trash2 size={14} />
-                                  </Button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="card-note">
-                      {t(
-                        "Les changements s’appliquent à la prochaine campagne. Les campagnes passées gardent leur configuration d’origine.",
-                        "Changes apply to the next campaign. Past campaigns retain their original configuration.",
-                      )}
-                    </div>
-                  </section>
-                )}
-                {tab === "competitors" && (
-                  <div className="analytics-grid">
-                    <section className="card">
-                      <div className="card-heading">
-                        <div>
-                          <h2>{t("Marques suivies", "Tracked brands")}</h2>
-                          <p>{t("Noms explicites et domaines", "Explicit names and domains")}</p>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => setModal("brand")}>
-                          <Plus size={14} />
-                          {t("Ajouter", "Add")}
-                        </Button>
-                      </div>
-                      {project.brands.map((b) => (
-                        <div className="brand-line" key={b.id}>
-                          <div className="avatar">{b.name[0].toUpperCase()}</div>
-                          <div className="grow">
-                            <strong>{b.name}</strong>
-                            <small className="block muted">{b.domain}</small>
+                    {["openai", "gemini"].map((pr) => {
+                      const connected = state.credentials.find((c) => c.provider === pr);
+                      return (
+                        <div className="integration-row" key={pr}>
+                          <div className="integration-icon">
+                            {pr === "openai" ? <Sparkles size={22} /> : <Globe2 size={22} />}
                           </div>
-                          {b.is_primary ? (
-                            <span className="badge green">{t("Votre marque", "Your brand")}</span>
-                          ) : (
+                          <div className="grow">
+                            <strong>{pr === "openai" ? "OpenAI" : "Google Gemini"}</strong>
+                            <p>
+                              {pr === "openai"
+                                ? "Responses API · GPT-4.1 mini"
+                                : "GenerateContent API · Gemini 2.5 Flash-Lite"}
+                            </p>
+                          </div>
+                          <span className={`badge ${connected ? "green" : ""}`}>
+                            {connected
+                              ? t("Clé enregistrée", "Key saved")
+                              : t("À connecter", "Not connected")}
+                          </span>
+                          {connected && (
                             <Button
                               variant="ghost"
                               size="icon"
                               disabled={busy}
-                              aria-label={t("Retirer le concurrent", "Remove competitor")}
-                              onClick={() => act(() => api(`brands/${b.id}`, "DELETE"))}
+                              aria-label={t("Supprimer la clé", "Remove key")}
+                              onClick={() => act(() => api(`credentials/${pr}`, "DELETE"))}
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={15} />
                             </Button>
                           )}
                         </div>
-                      ))}
-                    </section>
-                    <section className="card">
-                      <div className="card-heading">
-                        <div>
-                          <h2>{t("Comparaison observée", "Observed comparison")}</h2>
-                          <p>
-                            {t(
-                              "Un dénominateur commun, des preuves accessibles",
-                              "Shared denominator, accessible evidence",
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      <Comparison detail={detail} t={t} />
-                    </section>
-                  </div>
-                )}
-                {tab === "sources" && (
-                  <section className="card">
-                    <div className="card-heading">
-                      <div>
-                        <h2>
-                          {t("Sources effectivement retournées", "Sources actually returned")}
-                        </h2>
-                        <p>
-                          {t(
-                            "Uniquement les annotations structurées des fournisseurs",
-                            "Only structured provider annotations",
-                          )}
-                        </p>
-                      </div>
-                      <Globe2 size={18} />
-                    </div>
-                    {detail?.citations.length ? (
-                      <div className="table-wrap">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>{t("Source", "Source")}</th>
-                              <th>{t("Provenance", "Provenance")}</th>
-                              <th>{t("Preuve", "Evidence")}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {detail.citations.map((c, i) => (
-                              <tr key={i}>
-                                <td>
-                                  <a
-                                    className="text-link"
-                                    href={c.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    {c.title || c.domain}
-                                    <ExternalLink size={12} />
-                                  </a>
-                                  <small className="block muted">{c.domain}</small>
-                                </td>
-                                <td>{c.provenance}</td>
-                                <td>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() =>
-                                      setResponse(
-                                        detail.responses.find((r) => r.id === c.response_id) ??
-                                          null,
-                                      )
-                                    }
-                                  >
-                                    {t("Voir la réponse", "View response")}
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <Empty
-                        icon={<Globe2 size={24} />}
-                        title={t("Aucune citation vérifiable", "No verifiable citations")}
-                      >
-                        {t(
-                          "Activez le mode avec recherche web pour collecter les citations disponibles. Les liens écrits librement dans les réponses ne sont pas considérés comme des citations vérifiées.",
-                          "Enable web search mode to collect available citations. Links written freely in response text are not treated as verified citations.",
-                        )}
-                      </Empty>
-                    )}
-                  </section>
-                )}
-                {tab === "history" && (
-                  <section className="card">
-                    <div className="card-heading">
-                      <div>
-                        <h2>{t("Journal des réponses", "Response ledger")}</h2>
-                        <p>
-                          {t(
-                            "Question exacte, modèle, statut et réponse intégrale",
-                            "Exact question, model, status and full response",
-                          )}
-                        </p>
-                      </div>
-                      <span className="badge">
-                        {detail?.responses.length ?? 0} {t("exécutions", "executions")}
-                      </span>
-                    </div>
-                    {detail ? (
-                      <div className="table-wrap">
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>{t("Question", "Question")}</th>
-                              <th>{t("Fournisseur", "Provider")}</th>
-                              <th>{t("Statut", "Status")}</th>
-                              <th>{t("Coût estimé", "Est. cost")}</th>
-                              <th />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {detail.responses.map((r) => (
-                              <tr key={r.id}>
-                                <td className="question-cell">
-                                  {r.query_text}
-                                  <small className="block muted">
-                                    #{r.sample} ·{" "}
-                                    {r.finished_at
-                                      ? date(r.finished_at)
-                                      : t("En attente", "Pending")}
-                                  </small>
-                                </td>
-                                <td>
-                                  {r.provider}
-                                  <small className="block muted mono">
-                                    {r.returned_model || r.model}
-                                  </small>
-                                </td>
-                                <td>
-                                  <span
-                                    className={`badge ${r.status === "succeeded" ? "green" : ["failed", "invalid", "uncertain"].includes(r.status) ? "red" : ""}`}
-                                  >
-                                    {status(r.status)}
-                                  </span>
-                                </td>
-                                <td>{r.cost_micros == null ? "—" : money(r.cost_micros)}</td>
-                                <td>
-                                  <Button variant="ghost" size="sm" onClick={() => setResponse(r)}>
-                                    {t("Ouvrir", "Open")}
-                                    <ArrowRight size={13} />
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <Empty title={t("Votre historique est vide", "Your history is empty")}>
-                        {t(
-                          "La première campagne apparaîtra ici dès son lancement.",
-                          "Your first campaign will appear here as soon as it starts.",
-                        )}
-                      </Empty>
-                    )}
-                  </section>
-                )}
-              </>
-            )}
-            {tab === "settings" && (
-              <>
-                <section className="card">
-                  <div className="card-heading">
-                    <div>
-                      <h2>{t("Connexions API", "API connections")}</h2>
-                      <p>
-                        {t(
-                          "Vos propres clés, chiffrées sur le serveur",
-                          "Your own keys, encrypted on the server",
-                        )}
-                      </p>
-                    </div>
-                    <Button variant="outline" onClick={() => setModal("credential")}>
-                      <KeyRound size={15} />
-                      {t("Connecter une clé", "Connect a key")}
-                    </Button>
-                  </div>
-                  {["openai", "gemini"].map((pr) => {
-                    const connected = state.credentials.find((c) => c.provider === pr);
-                    return (
-                      <div className="integration-row" key={pr}>
-                        <div className="integration-icon">
-                          {pr === "openai" ? <Sparkles size={22} /> : <Globe2 size={22} />}
-                        </div>
-                        <div className="grow">
-                          <strong>{pr === "openai" ? "OpenAI" : "Google Gemini"}</strong>
-                          <p>
-                            {pr === "openai"
-                              ? "Responses API · GPT-4.1 mini"
-                              : "GenerateContent API · Gemini 2.5 Flash-Lite"}
-                          </p>
-                        </div>
-                        <span className={`badge ${connected ? "green" : ""}`}>
-                          {connected
-                            ? t("Clé enregistrée", "Key saved")
-                            : t("À connecter", "Not connected")}
-                        </span>
-                        {connected && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={busy}
-                            aria-label={t("Supprimer la clé", "Remove key")}
-                            onClick={() => act(() => api(`credentials/${pr}`, "DELETE"))}
-                          >
-                            <Trash2 size={15} />
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  <div className="card-note">
-                    {t(
-                      "La validité d’une clé est vérifiée lors d’une mesure réelle. Son enregistrement ne déclenche aucun appel payant.",
-                      "Key validity is checked during a real measurement. Saving a key does not trigger a paid API call.",
-                    )}
-                  </div>
-                </section>
-                <section className="card">
-                  <div className="card-heading">
-                    <div>
-                      <h2>{t("Données et confidentialité", "Data & privacy")}</h2>
-                      <p>
-                        {t(
-                          "Exportez vos données ou supprimez votre espace",
-                          "Export your data or delete your workspace",
-                        )}
-                      </p>
-                    </div>
-                    <ShieldCheck size={18} />
-                  </div>
-                  <div className="settings-actions">
-                    <a className="btn btn-outline" href="/api/account/export">
-                      <ArrowDownToLine size={15} />
-                      {t("Exporter mes données", "Export my data")}
-                    </a>
-                    <Button variant="destructive" onClick={() => setModal("delete")}>
-                      {t("Supprimer mon espace", "Delete my workspace")}
-                    </Button>
-                  </div>
-                </section>
-                <div className="card-note">
-                  {t(
-                    "Community : un propriétaire, plusieurs projets. Les invitations, le SSO et la facturation SaaS sont prévus après validation du MVP.",
-                    "Community: one owner, multiple projects. Invitations, SSO and SaaS billing are planned after MVP validation.",
-                  )}
-                </div>
-              </>
-            )}
-            {tab === "usage" && (
-              <>
-                <div className="stats-grid">
-                  <Metric
-                    label={t("Budget mensuel", "Monthly budget")}
-                    value={money(state.usage.budget)}
-                    sub={t("Plafond de votre organisation", "Organization ceiling")}
-                    note={t("Mois calendaire UTC", "UTC calendar month")}
-                    icon={<Wallet size={18} />}
-                  />
-                  <Metric
-                    label={t("Engagé ce mois", "Committed this month")}
-                    value={money(state.usage.amount)}
-                    sub={t("Estimé + réservé + incertain", "Estimated + reserved + uncertain")}
-                    note={t(
-                      "Conservé après suppression d’un projet",
-                      "Preserved after deleting a project",
-                    )}
-                    icon={<Activity size={18} />}
-                  />
-                  <Metric
-                    label={t("Réservé", "Reserved")}
-                    value={money(state.usage.reserved)}
-                    sub={t("Exécutions en attente", "Pending executions")}
-                    note={t("Réservation avant chaque campagne", "Reserved before each campaign")}
-                    icon={<History size={18} />}
-                  />
-                  <Metric
-                    label={t("Coût incertain", "Uncertain cost")}
-                    value={money(state.usage.uncertain)}
-                    sub={t(
-                      "Réservations conservatrices conservées",
-                      "Conservative reservations retained",
-                    )}
-                    note={t(
-                      "À rapprocher des factures fournisseur",
-                      "Reconcile against provider invoices",
-                    )}
-                    icon={<CircleHelp size={18} />}
-                  />
-                </div>
-                <section className="card">
-                  <div className="card-heading">
-                    <div>
-                      <h2>{t("Maîtrisez votre consommation", "Control your spending")}</h2>
-                      <p>
-                        {t(
-                          "Community utilise vos clés. Aucun abonnement n’est facturé par cette application.",
-                          "Community uses your keys. This application does not charge a subscription.",
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <form
-                    className="budget-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const f = new FormData(e.currentTarget);
-                      act(
-                        () => api("budget", "POST", { usd: Number(f.get("usd")) }),
-                        t("Budget enregistré.", "Budget saved."),
                       );
-                    }}
-                  >
-                    <Field
-                      label={t("Plafond mensuel en USD", "Monthly limit in USD")}
-                      hint={`${t("Plafond serveur", "Server ceiling")} : ${money(state.usage.ceiling)}`}
-                    >
-                      <input
-                        name="usd"
-                        type="number"
-                        min="0.01"
-                        max={state.usage.ceiling / 1e6}
-                        step="0.01"
-                        defaultValue={state.usage.budget / 1e6}
-                        required
-                      />
-                    </Field>
-                    <Button disabled={busy}>{t("Enregistrer le budget", "Save budget")}</Button>
-                  </form>
+                    })}
+                    <div className="card-note">
+                      {t(
+                        "La validité d’une clé est vérifiée lors d’une mesure réelle. Son enregistrement ne déclenche aucun appel payant.",
+                        "Key validity is checked during a real measurement. Saving a key does not trigger a paid API call.",
+                      )}
+                    </div>
+                  </section>
+                  <section className="card">
+                    <div className="card-heading">
+                      <div>
+                        <h2>{t("Données et confidentialité", "Data & privacy")}</h2>
+                        <p>
+                          {t(
+                            "Exportez vos données ou supprimez votre espace",
+                            "Export your data or delete your workspace",
+                          )}
+                        </p>
+                      </div>
+                      <ShieldCheck size={18} />
+                    </div>
+                    <div className="settings-actions">
+                      <a className="btn btn-outline" href="/api/account/export">
+                        <ArrowDownToLine size={15} />
+                        {t("Exporter mes données", "Export my data")}
+                      </a>
+                      <Button variant="destructive" onClick={() => setModal("delete")}>
+                        {t("Supprimer mon espace", "Delete my workspace")}
+                      </Button>
+                    </div>
+                  </section>
                   <div className="card-note">
                     {t(
-                      "Les estimations reposent sur les tarifs du 31 octobre 2026. Elles ne sont pas des factures et ne limitent pas les appels réalisés en dehors de cette installation. Configurez aussi les limites chez vos fournisseurs.",
-                      "Estimates use prices checked on 31 October 2026. They are not invoices and do not limit calls made outside this installation. Configure provider-side limits as well.",
+                      "Community : un propriétaire, plusieurs projets. Les invitations, le SSO et la facturation SaaS sont prévus après validation du MVP.",
+                      "Community: one owner, multiple projects. Invitations, SSO and SaaS billing are planned after MVP validation.",
                     )}
                   </div>
-                </section>
-              </>
-            )}
+                </>
+              )}
+              {tab === "usage" && (
+                <>
+                  <div className="stats-grid">
+                    <Metric
+                      label={t("Budget mensuel", "Monthly budget")}
+                      value={money(state.usage.budget)}
+                      sub={t("Plafond de votre organisation", "Organization ceiling")}
+                      note={t("Mois calendaire UTC", "UTC calendar month")}
+                      icon={<Wallet size={18} />}
+                    />
+                    <Metric
+                      label={t("Engagé ce mois", "Committed this month")}
+                      value={money(state.usage.amount)}
+                      sub={t("Estimé + réservé + incertain", "Estimated + reserved + uncertain")}
+                      note={t(
+                        "Conservé après suppression d’un projet",
+                        "Preserved after deleting a project",
+                      )}
+                      icon={<Activity size={18} />}
+                    />
+                    <Metric
+                      label={t("Réservé", "Reserved")}
+                      value={money(state.usage.reserved)}
+                      sub={t("Exécutions en attente", "Pending executions")}
+                      note={t("Réservation avant chaque campagne", "Reserved before each campaign")}
+                      icon={<History size={18} />}
+                    />
+                    <Metric
+                      label={t("Coût incertain", "Uncertain cost")}
+                      value={money(state.usage.uncertain)}
+                      sub={t(
+                        "Réservations conservatrices conservées",
+                        "Conservative reservations retained",
+                      )}
+                      note={t(
+                        "À rapprocher des factures fournisseur",
+                        "Reconcile against provider invoices",
+                      )}
+                      icon={<CircleHelp size={18} />}
+                    />
+                  </div>
+                  <section className="card">
+                    <div className="card-heading">
+                      <div>
+                        <h2>{t("Maîtrisez votre consommation", "Control your spending")}</h2>
+                        <p>
+                          {t(
+                            "Community utilise vos clés. Aucun abonnement n’est facturé par cette application.",
+                            "Community uses your keys. This application does not charge a subscription.",
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <form
+                      className="budget-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const f = new FormData(e.currentTarget);
+                        act(
+                          () => api("budget", "POST", { usd: Number(f.get("usd")) }),
+                          t("Budget enregistré.", "Budget saved."),
+                        );
+                      }}
+                    >
+                      <Field
+                        label={t("Plafond mensuel en USD", "Monthly limit in USD")}
+                        hint={`${t("Plafond serveur", "Server ceiling")} : ${money(state.usage.ceiling)}`}
+                      >
+                        <input
+                          name="usd"
+                          type="number"
+                          min="0.01"
+                          max={state.usage.ceiling / 1e6}
+                          step="0.01"
+                          defaultValue={state.usage.budget / 1e6}
+                          required
+                        />
+                      </Field>
+                      <Button disabled={busy}>{t("Enregistrer le budget", "Save budget")}</Button>
+                    </form>
+                    <div className="card-note">
+                      {t(
+                        "Les estimations reposent sur les tarifs du 31 octobre 2026. Elles ne sont pas des factures et ne limitent pas les appels réalisés en dehors de cette installation. Configurez aussi les limites chez vos fournisseurs.",
+                        "Estimates use prices checked on 31 October 2026. They are not invoices and do not limit calls made outside this installation. Configure provider-side limits as well.",
+                      )}
+                    </div>
+                  </section>
+                </>
+              )}
+            </PageTransition>
             <footer className="page-footer">
               <span>
                 AI Visibility OS <span className="muted">/</span> Community 0.2

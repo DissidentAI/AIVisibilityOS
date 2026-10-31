@@ -33,7 +33,7 @@ After generating `.env`, run `docker compose up --build -d`. See [deployment](DE
 npm run typecheck
 npm test
 npm run build
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:e2e
 npm audit
 ```
@@ -53,3 +53,7 @@ This release supports one owner per installation. Persistent daily/weekly campai
 AGPL-3.0-only allows commercial use and competing hosting. Operators must comply with its source availability obligations; there is no warranty. See [license decision](LICENSE-DECISION.md). The repository is not made public automatically.
 
 No Hostinger approval or referral URL is fabricated. Only an official issued deploy button may be added after onboarding. The €39/€99/€249 offers are hypotheses, not active subscriptions. [Business validation and cost model](BUSINESS.md).
+
+## Interface and remote preview
+
+The responsive amber-and-ink interface includes glass surfaces, animated navigation, dialogs, onboarding and charts, with light/dark themes and an animation pause control. OS reduced-motion preferences are respected. See [design and accessibility](DESIGN.md) and [temporary HTTPS access from a phone](REMOTE-PREVIEW.md).

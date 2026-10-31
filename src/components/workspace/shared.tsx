@@ -7,10 +7,13 @@ import {
   isValidElement,
   useEffect,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { X, Search } from "lucide-react";
 import { Button } from "../ui/button";
+import { motion } from "motion/react";
+import { useMotionPreferences } from "../ui/motion";
 export type Translate = (fr: string, en: string) => string;
 export const ModalError = createContext("");
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
@@ -35,20 +38,42 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const [closing, setClosing] = useState(false);
+  const { reduced } = useMotionPreferences();
   const error = useContext(ModalError);
   useEffect(() => {
-    ref.current?.showModal();
+    const dialog = ref.current;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog?.showModal();
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog?.close();
+      document.body.style.overflow = previous;
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
   }, []);
+  const close = () => (reduced ? onClose() : setClosing(true));
   return (
-    <dialog
+    <motion.dialog
       ref={ref}
       className={`modal ${wide ? "modal-wide" : ""}`}
-      onCancel={onClose}
-      onClose={onClose}
+      aria-labelledby={titleId}
+      initial={reduced ? false : { opacity: 0, y: 24, scale: 0.97 }}
+      animate={closing ? { opacity: 0, y: 12, scale: 0.98 } : { opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: reduced ? 0 : closing ? 0.16 : 0.35 }}
+      onAnimationComplete={() => {
+        if (closing) onClose();
+      }}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
     >
       <div className="modal-title">
-        <h2>{title}</h2>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close / Fermer">
+        <h2 id={titleId}>{title}</h2>
+        <Button variant="ghost" size="icon" onClick={close} aria-label="Close / Fermer">
           <X size={18} />
         </Button>
       </div>
@@ -58,7 +83,7 @@ export function Modal({
         </p>
       )}
       {children}
-    </dialog>
+    </motion.dialog>
   );
 }
 export function Field({

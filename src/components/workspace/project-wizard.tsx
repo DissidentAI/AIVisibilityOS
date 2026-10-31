@@ -1,5 +1,7 @@
 "use client";
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
+import { motion } from "motion/react";
+import { useMotionPreferences } from "../ui/motion";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "../ui/button";
 import { Field, Modal, type Translate } from "./shared";
@@ -25,6 +27,11 @@ export function ProjectWizard({
       { name: "", domain: "" },
     ]),
     [questions, setQuestions] = useState("");
+  const { reduced } = useMotionPreferences();
+  const stepRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (step > 1) stepRef.current?.querySelector<HTMLInputElement>("input, textarea")?.focus();
+  }, [step]);
   function suggest() {
     const topic = industry || t("ce secteur", "this sector");
     setQuestions(
@@ -64,7 +71,11 @@ export function ProjectWizard({
       <div className="wizard-steps">
         {[t("Marque", "Brand"), t("Concurrents", "Competitors"), t("Questions", "Questions")].map(
           (s, i) => (
-            <span key={s} className={step === i + 1 ? "current" : ""}>
+            <span
+              key={s}
+              className={step >= i + 1 ? "current" : ""}
+              aria-current={step === i + 1 ? "step" : undefined}
+            >
               <b>{i + 1}</b>
               {s}
             </span>
@@ -87,128 +98,135 @@ export function ProjectWizard({
             });
         }}
       >
-        {step === 1 && (
-          <>
-            <Field label={t("Nom de votre marque", "Your brand name")}>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Karburo"
-                required
-                minLength={2}
-                maxLength={100}
-              />
-            </Field>
-            <Field label={t("Domaine web", "Website domain")}>
-              <input
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder="votre-marque.fr"
-                required
-              />
-            </Field>
-            <Field label={t("Secteur d’activité", "Industry")}>
-              <input
-                value={industry}
-                onChange={(e) => setIndustry(e.target.value)}
-                placeholder={t("Comparaison des prix des carburants", "Fuel price comparison")}
-                required
-                minLength={2}
-                maxLength={120}
-              />
-            </Field>
-            <div className="form-grid">
-              <Field label={t("Pays cible (contexte)", "Target country (context)")}>
+        <motion.div
+          ref={stepRef}
+          key={step}
+          initial={reduced ? false : { opacity: 0, x: 12 }}
+          animate={{ opacity: 1, x: 0 }}
+        >
+          {step === 1 && (
+            <>
+              <Field label={t("Nom de votre marque", "Your brand name")}>
                 <input
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value.toUpperCase())}
-                  pattern="[A-Z]{2}"
-                  maxLength={2}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Karburo"
+                  required
+                  minLength={2}
+                  maxLength={100}
+                />
+              </Field>
+              <Field label={t("Domaine web", "Website domain")}>
+                <input
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="votre-marque.fr"
                   required
                 />
               </Field>
-              <Field label={t("Langue des réponses", "Response language")}>
-                <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  <option value="fr">Français</option>
-                  <option value="en">English</option>
-                </select>
+              <Field label={t("Secteur d’activité", "Industry")}>
+                <input
+                  value={industry}
+                  onChange={(e) => setIndustry(e.target.value)}
+                  placeholder={t("Comparaison des prix des carburants", "Fuel price comparison")}
+                  required
+                  minLength={2}
+                  maxLength={120}
+                />
               </Field>
-            </div>
-          </>
-        )}
-        {step === 2 && (
-          <>
-            <p className="muted">
-              {t(
-                "Ajoutez jusqu’à deux concurrents ici. Vous pourrez en ajouter d’autres ensuite. Les champs vides sont ignorés.",
-                "Add up to two competitors here. You can add more later. Empty rows are ignored.",
-              )}
-            </p>
-            {competitors.map((c, i) => (
-              <div className="competitor-form" key={i}>
-                <span className="section-kicker">
-                  {t("CONCURRENT", "COMPETITOR")} 0{i + 1}
-                </span>
-                <Field label={t("Nom", "Name")}>
+              <div className="form-grid">
+                <Field label={t("Pays cible (contexte)", "Target country (context)")}>
                   <input
-                    value={c.name}
-                    required={!!c.domain}
-                    minLength={2}
-                    maxLength={100}
-                    onChange={(e) =>
-                      setCompetitors((prev) =>
-                        prev.map((p, j) => (i === j ? { ...p, name: e.target.value } : p)),
-                      )
-                    }
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                    pattern="[A-Z]{2}"
+                    maxLength={2}
+                    required
                   />
                 </Field>
-                <Field label={t("Domaine", "Domain")}>
-                  <input
-                    value={c.domain}
-                    required={!!c.name}
-                    placeholder="example.com"
-                    onChange={(e) =>
-                      setCompetitors((prev) =>
-                        prev.map((p, j) => (i === j ? { ...p, domain: e.target.value } : p)),
-                      )
-                    }
-                  />
+                <Field label={t("Langue des réponses", "Response language")}>
+                  <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                  </select>
                 </Field>
               </div>
-            ))}
-          </>
-        )}
-        {step === 3 && (
-          <>
-            <div className="inline between">
+            </>
+          )}
+          {step === 2 && (
+            <>
               <p className="muted">
-                {t("Une question par ligne. 50 maximum.", "One question per line. Up to 50.")}
+                {t(
+                  "Ajoutez jusqu’à deux concurrents ici. Vous pourrez en ajouter d’autres ensuite. Les champs vides sont ignorés.",
+                  "Add up to two competitors here. You can add more later. Empty rows are ignored.",
+                )}
               </p>
-              <Button type="button" size="sm" variant="outline" onClick={suggest}>
-                <Sparkles size={14} />
-                {t("Proposer 10 questions", "Suggest 10 questions")}
-              </Button>
-            </div>
-            <Field
-              label={t("Questions à surveiller", "Questions to track")}
-              hint={t(
-                "Suggestions à adapter à vos clients. La marque n’est pas injectée dans les questions.",
-                "Adapt these suggestions to your customers. Your brand is not injected into the questions.",
-              )}
-            >
-              <textarea
-                rows={10}
-                value={questions}
-                onChange={(e) => setQuestions(e.target.value)}
-                required
-                maxLength={50000}
-              />
-            </Field>
-            <p className="small muted">
-              {qs.length}/50 {t("questions", "questions")}
-            </p>
-          </>
-        )}
+              {competitors.map((c, i) => (
+                <div className="competitor-form" key={i}>
+                  <span className="section-kicker">
+                    {t("CONCURRENT", "COMPETITOR")} 0{i + 1}
+                  </span>
+                  <Field label={t("Nom", "Name")}>
+                    <input
+                      value={c.name}
+                      required={!!c.domain}
+                      minLength={2}
+                      maxLength={100}
+                      onChange={(e) =>
+                        setCompetitors((prev) =>
+                          prev.map((p, j) => (i === j ? { ...p, name: e.target.value } : p)),
+                        )
+                      }
+                    />
+                  </Field>
+                  <Field label={t("Domaine", "Domain")}>
+                    <input
+                      value={c.domain}
+                      required={!!c.name}
+                      placeholder="example.com"
+                      onChange={(e) =>
+                        setCompetitors((prev) =>
+                          prev.map((p, j) => (i === j ? { ...p, domain: e.target.value } : p)),
+                        )
+                      }
+                    />
+                  </Field>
+                </div>
+              ))}
+            </>
+          )}
+          {step === 3 && (
+            <>
+              <div className="inline between">
+                <p className="muted">
+                  {t("Une question par ligne. 50 maximum.", "One question per line. Up to 50.")}
+                </p>
+                <Button type="button" size="sm" variant="outline" onClick={suggest}>
+                  <Sparkles size={14} />
+                  {t("Proposer 10 questions", "Suggest 10 questions")}
+                </Button>
+              </div>
+              <Field
+                label={t("Questions à surveiller", "Questions to track")}
+                hint={t(
+                  "Suggestions à adapter à vos clients. La marque n’est pas injectée dans les questions.",
+                  "Adapt these suggestions to your customers. Your brand is not injected into the questions.",
+                )}
+              >
+                <textarea
+                  rows={10}
+                  value={questions}
+                  onChange={(e) => setQuestions(e.target.value)}
+                  required
+                  maxLength={50000}
+                />
+              </Field>
+              <p className="small muted">
+                {qs.length}/50 {t("questions", "questions")}
+              </p>
+            </>
+          )}
+        </motion.div>
         <div className="modal-actions">
           {step > 1 && (
             <Button type="button" variant="ghost" onClick={() => setStep(step - 1)}>

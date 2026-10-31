@@ -8,6 +8,31 @@ test("real browser: Karburo, cost preview, schedules, branded PDF, web evidence,
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
+  await mkdir("docs/screenshots", { recursive: true });
+  await expect(page.getByLabel("Adresse e-mail")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.screenshot({
+    path: "docs/screenshots/sign-in-desktop.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: "docs/screenshots/sign-in-mobile.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await page.getByRole("button", { name: "Animations", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
+  await page.reload();
+  await expect(page.getByLabel("Adresse e-mail")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
+  await page.getByRole("button", { name: "Animations", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
   await page.getByLabel("Adresse e-mail").fill("owner@example.com");
   await page.getByLabel("Mot de passe", { exact: true }).fill("e2e-fixture-password");
   await page.getByLabel("Code d’installation").fill("e2e-fixture-bootstrap-not-production");
@@ -32,9 +57,18 @@ test("real browser: Karburo, cost preview, schedules, branded PDF, web evidence,
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "Vue d’ensemble", exact: true }).click();
   await mkdir("docs/screenshots", { recursive: true });
-  await page.screenshot({ path: "docs/screenshots/overview-light.png", fullPage: true });
+  await page.screenshot({
+    path: "docs/screenshots/overview-dark.png",
+    fullPage: true,
+    animations: "disabled",
+  });
   await page.getByRole("button", { name: "Changer de thème" }).click();
-  await page.screenshot({ path: "docs/screenshots/overview-dark.png", fullPage: true });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.screenshot({
+    path: "docs/screenshots/overview-light.png",
+    fullPage: true,
+    animations: "disabled",
+  });
   await page.getByRole("button", { name: "Changer de thème" }).click();
   await page.getByRole("button", { name: "Paramètres", exact: true }).click();
   for (const provider of ["openai", "gemini"]) {
@@ -154,5 +188,60 @@ test("real browser: Karburo, cost preview, schedules, branded PDF, web evidence,
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
+  // Real keyboard and touch layouts: all main pages must fit the phone viewport.
+  await page.screenshot({
+    path: ".local/overview-mobile-fixture.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Close menu", exact: true })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Close menu", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Menu", exact: true })).toBeFocused();
+  for (const title of [
+    "Tracked queries",
+    "Competitors",
+    "Sources & citations",
+    "History & exports",
+    "Scheduling",
+    "Client reports",
+    "Settings",
+    "Usage & budget",
+  ]) {
+    await page.getByRole("button", { name: "Menu", exact: true }).click();
+    await page.getByRole("button", { name: title, exact: true }).click();
+    await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      title,
+    ).toBe(true);
+  }
+  await page.getByRole("button", { name: "New project", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Create a project" })).toBeVisible();
+  await page.getByLabel("Your brand name").fill("Draft retained on step back");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Create a project" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "New project", exact: true })).toBeFocused();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
+  await expect(page.getByRole("button", { name: "Animations", exact: true })).toBeDisabled();
+  expect(
+    await page
+      .locator(".ambient-orb")
+      .first()
+      .evaluate((el) => getComputedStyle(el).animationName),
+  ).toBe("none");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
+  await page.getByRole("button", { name: "Toggle theme" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
   expect(errors).toEqual([]);
 });

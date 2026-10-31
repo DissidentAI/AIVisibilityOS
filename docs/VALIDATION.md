@@ -8,7 +8,7 @@
 | TypeScript strict                                           | Réussite                                                                           |
 | Tests unitaires + intégration PostgreSQL                    | **41 tests réussis**                                                               |
 | Build Next.js production standalone                         | Réussite                                                                           |
-| Parcours navigateur Chromium                                | **1 scénario complet réussi**, desktop + mobile, FR + EN                           |
+| Parcours navigateur Chromium et WebKit                      | **3 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
 | Audit npm, dépendances de production et développement       | **0 vulnérabilité signalée** au contrôle effectué                                  |
 | Connexion réelle OpenAI                                     | Non vérifiée : aucune clé réelle fournie                                           |
 | Connexion réelle Gemini                                     | Non vérifiée : aucune clé réelle fournie                                           |
@@ -39,4 +39,14 @@ Une fonctionnalité future n’est pas marquée livrée sur la base d’un écra
 
 Les tests locaux incluent le rendu PDF à partir de vrais objets persistés, avec réponses **synthétiques**. Le PDF téléchargé a été ouvert/rendu et son texte extrait avec Poppler pour contrôler la pagination, les accents, la méthode et les preuves. La compilation standalone inclut les dépendances et la police nécessaires au PDF. La [CI de la livraison 0.2](https://github.com/DissidentAI/AIVisibilityOS/actions/runs/41247804955) est réussie : 41 tests, parcours navigateur, images Docker, tables agences, estimation web, présence de la police/licence PDF et sauvegarde/restauration. Aucune connexion réelle ou exécution cloud n’est déduite des fixtures.
 
-La base locale existante a été sauvegardée à l’arrêt, puis migrée et redémarrée avec web/worker 0.2. Au contrôle final, elle contient zéro compte/projet et aucune fixture ; le endpoint de santé et le heartbeat répondent. Aucun déploiement public n’a été effectué.
+La base locale existante a été sauvegardée à l’arrêt, puis migrée et redémarrée avec web/worker 0.2. Au contrôle de cette livraison, elle contenait zéro compte/projet et aucune fixture ; le endpoint de santé et le heartbeat répondaient. Aucun déploiement VPS n’avait été effectué.
+
+## Refonte de l’interface — ambre, verre et mouvement
+
+Validation locale : 41 tests unitaires/intégration, TypeScript strict, build standalone et trois scénarios navigateur réussis. Chromium couvre le parcours métier complet, toutes les pages à 390 px, les exports, les transitions, la boucle de focus du menu et le retour au déclencheur après fermeture d’une fenêtre. WebKit couvre la connexion, la navigation à 390/320 px, l’onboarding, le focus et la conservation d’un brouillon entre étapes. Un dernier scénario WebKit vérifie le mouvement réduit et le fonctionnement lorsque `localStorage` est bloqué. Les erreurs JavaScript du parcours principal et du parcours mobile sont contrôlées.
+
+Les contrôles ont permis de corriger le focus pendant l’ouverture du menu, la restitution du focus à la fermeture des fenêtres et la différence d’activation des boutons dans Safari. Le thème/la langue ne sont plus écrasés au premier rendu et une actualisation des mêmes mesures ne relance plus le graphique. Audit npm : aucune vulnérabilité signalée lors du contrôle. Les captures de connexion et des deux thèmes sont générées depuis l’application réelle ; les captures de dashboard précèdent les réponses synthétiques.
+
+Une prévisualisation HTTPS temporaire a été ouverte à la demande du propriétaire via Cloudflare Quick Tunnel, vers une copie isolée du build de production sur le Mac. Le chargement du formulaire sur le lien HTTPS a été vérifié dans le navigateur à 390 px ; `/api/health` répond, `/api/state` refuse une session absente et une mutation d’origine étrangère est rejetée. Aucun compte de test, aucune clé factice et aucune mesure synthétique n’ont été ajoutés à cette installation. Le code de première installation et l’adresse éphémère restent hors du dépôt. Ce tunnel n’est pas un déploiement SaaS permanent.
+
+Les limites restent identiques : aucun appel réel aux fournisseurs sans clés, aucun test sur téléphone physique, aucune garantie de disponibilité du Mac, et aucun audit de sécurité indépendant.
