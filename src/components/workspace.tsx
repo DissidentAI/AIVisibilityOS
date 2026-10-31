@@ -1,141 +1,1512 @@
 "use client";
-import { createContext, useContext, useId, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Activity, ArrowDownToLine, ArrowRight, Check, ChevronDown, CircleHelp, Globe2, Layers3, LayoutDashboard, ListFilter, LogOut, Menu, MessageSquareText, Moon, Play, Plus, Radio, Settings2, ShieldCheck, Sparkles, Sun, Trash2, Users, Wallet, X, ExternalLink, RefreshCw, KeyRound, Search, History } from "lucide-react";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Activity,
+  ArrowDownToLine,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  CircleHelp,
+  Globe2,
+  Layers3,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  MessageSquareText,
+  Moon,
+  Play,
+  Plus,
+  Radio,
+  Settings2,
+  ShieldCheck,
+  Sparkles,
+  Sun,
+  Trash2,
+  Users,
+  Wallet,
+  X,
+  ExternalLink,
+  KeyRound,
+  History,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { mentionRate } from "@/lib/measurement";
-import type { State, Project, Run, RunDetail, ResponseRecord } from "@/lib/types";
+import type { State, Run, RunDetail, ResponseRecord } from "@/lib/types";
+import {
+  api,
+  Modal,
+  Field,
+  Empty,
+  ModalError,
+  money,
+  friendly,
+  type Translate,
+} from "./workspace/shared";
+import { Metric, Comparison, HistoryChart } from "./workspace/analytics";
+import { ProjectWizard } from "./workspace/project-wizard";
 type Tab = "overview" | "queries" | "competitors" | "sources" | "history" | "settings" | "usage";
-type Translate = (fr: string, en: string) => string;
-const ModalError = createContext("");
-async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
-  const res = await fetch(`/api/${path}`, { method, headers: data === undefined ? {} : { "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data) });
-  const result = await res.json(); if (!res.ok) throw new Error(result.error ?? "internal_error"); return result;
-}
-function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const error = useContext(ModalError);
-  useEffect(() => { ref.current?.showModal(); }, []);
-  return <dialog ref={ref} className={`modal ${wide ? "modal-wide" : ""}`} onCancel={onClose} onClose={onClose}><div className="modal-title"><h2>{title}</h2><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close / Fermer"><X size={18}/></Button></div>{error && <p role="alert" className="alert error">{error}</p>}{children}</dialog>;
-}
-function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
-  const id = useId();
-  const control = isValidElement<{id?: string; "aria-describedby"?: string}>(children) ? cloneElement(children, {id, "aria-describedby": hint ? `${id}-hint` : undefined}) : children;
-  return <div className="field"><label htmlFor={id}>{label}</label>{control}{hint && <small id={`${id}-hint`}>{hint}</small>}</div>;
-}
-function Empty({ icon, title, children }: { icon?: ReactNode; title: string; children: ReactNode }) { return <div className="empty"><div className="empty-icon">{icon ?? <Search size={24}/>}</div><h3>{title}</h3><div className="muted">{children}</div></div>; }
-const money = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(n / 1e6);
-function friendly(code: string, t: Translate) {
-  const errors: Record<string, string> = {
-    invalid_credentials: t("Adresse ou mot de passe incorrect.", "Incorrect email or password."), invalid_bootstrap_token: t("Le code d’installation est incorrect. Consultez BOOTSTRAP_TOKEN dans votre fichier .env.", "Incorrect setup code. See BOOTSTRAP_TOKEN in your .env file."),
-    registration_closed: t("Un propriétaire existe déjà. Connectez-vous.", "An owner already exists. Please sign in."), invalid_input: t("Vérifiez les champs : domaines publics, noms distincts et questions de 5 à 1 000 caractères.", "Check the fields: public domains, distinct names and questions of 5–1,000 characters."),
-    budget_exceeded: t("Le budget restant ne couvre pas cette campagne. Réduisez les échantillons ou ajustez votre plafond.", "The remaining budget cannot cover this campaign. Reduce samples or adjust your limit."),
-    credentials_required: t("Connectez une clé pour chaque fournisseur sélectionné.", "Connect a key for each selected provider."), campaign_already_running: t("Une campagne est en cours. Attendez sa fin.", "A campaign is already running. Wait for it to finish."),
-    rate_limited: t("Trop de tentatives. Patientez avant de réessayer.", "Too many attempts. Please wait before trying again."), invalid_origin: t("L’adresse de l’application ne correspond pas à APP_URL dans la configuration.", "This application address does not match APP_URL in the configuration."),
-    encryption_not_configured: t("La clé de chiffrement du serveur doit être configurée.", "The server encryption key must be configured."),
-    not_found: t("Cet élément n’est plus disponible.", "This item is no longer available."), unauthenticated: t("Votre session a expiré. Reconnectez-vous.", "Your session expired. Sign in again."),
-  };
-  return errors[code] ?? t(`L’opération n’a pas abouti (${code}). Réessayez ou consultez la documentation.`, `The operation failed (${code}). Try again or check the documentation.`);
-}
 export function Workspace() {
-  const [lang, setLang] = useState<"fr" | "en">("fr"), [dark, setDark] = useState(false);
-  const t: Translate = (fr, en) => lang === "fr" ? fr : en;
-  const [state, setState] = useState<State | null>(null), [loading, setLoading] = useState(true), [setup, setSetup] = useState(false);
-  const [tab, setTab] = useState<Tab>("overview"), [projectId, setProjectId] = useState(""), [runs, setRuns] = useState<Run[]>([]), [detail, setDetail] = useState<RunDetail | null>(null), [runId, setRunId] = useState("");
-  const [error, setError] = useState(""), [notice, setNotice] = useState(""), [busy, setBusy] = useState(false), [mobile, setMobile] = useState(false);
-  const [modal, setModal] = useState<"project" | "run" | "credential" | "query" | "brand" | "delete" | null>(null), [response, setResponse] = useState<ResponseRecord | null>(null);
-  const project = state?.projects.find(p => p.id === projectId);
+  const [lang, setLang] = useState<"fr" | "en">("fr"),
+    [dark, setDark] = useState(false);
+  const t: Translate = (fr, en) => (lang === "fr" ? fr : en);
+  const [state, setState] = useState<State | null>(null),
+    [loading, setLoading] = useState(true),
+    [setup, setSetup] = useState(false);
+  const [tab, setTab] = useState<Tab>("overview"),
+    [projectId, setProjectId] = useState(""),
+    [runs, setRuns] = useState<Run[]>([]),
+    [detail, setDetail] = useState<RunDetail | null>(null),
+    [runId, setRunId] = useState("");
+  const [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false),
+    [mobile, setMobile] = useState(false);
+  const [modal, setModal] = useState<
+      "project" | "run" | "credential" | "query" | "brand" | "delete" | null
+    >(null),
+    [response, setResponse] = useState<ResponseRecord | null>(null);
+  const project = state?.projects.find((p) => p.id === projectId);
   const activeRequest = useRef(0);
-  useEffect(() => { const saved = localStorage.getItem("avos-lang"); if (saved === "en") setLang("en"); setDark(localStorage.getItem("avos-theme") === "dark"); }, []);
-  useEffect(() => { document.documentElement.lang = lang; localStorage.setItem("avos-lang", lang); }, [lang]);
-  useEffect(() => { document.documentElement.dataset.theme = dark ? "dark" : "light"; localStorage.setItem("avos-theme", dark ? "dark" : "light"); }, [dark]);
-  const refresh = useCallback(async () => {
-    const s = await api<State>("state"); setState(s); setProjectId(old => s.projects.some(p => p.id === old) ? old : s.projects[0]?.id ?? "");
+  useEffect(() => {
+    const saved = localStorage.getItem("avos-lang");
+    if (saved === "en") setLang("en");
+    setDark(localStorage.getItem("avos-theme") === "dark");
   }, []);
-  useEffect(() => { refresh().catch(async e => { if (e.message === "unauthenticated") { const s = await api<{ setupRequired: boolean }>("auth/status"); setSetup(s.setupRequired); } else setError(e.message); }).catch(() => setError("internal_error")).finally(() => setLoading(false)); }, [refresh]);
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    localStorage.setItem("avos-lang", lang);
+  }, [lang]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    localStorage.setItem("avos-theme", dark ? "dark" : "light");
+  }, [dark]);
+  const refresh = useCallback(async () => {
+    const s = await api<State>("state");
+    setState(s);
+    setProjectId((old) => (s.projects.some((p) => p.id === old) ? old : (s.projects[0]?.id ?? "")));
+  }, []);
+  useEffect(() => {
+    refresh()
+      .catch(async (e) => {
+        if (e.message === "unauthenticated") {
+          const s = await api<{ setupRequired: boolean }>("auth/status");
+          setSetup(s.setupRequired);
+        } else setError(e.message);
+      })
+      .catch(() => setError("internal_error"))
+      .finally(() => setLoading(false));
+  }, [refresh]);
   const refreshRuns = useCallback(async () => {
-    if (!projectId) { setRuns([]); setDetail(null); return; }
+    if (!projectId) {
+      setRuns([]);
+      setDetail(null);
+      return;
+    }
     const seq = ++activeRequest.current;
-    const rs = await api<Run[]>(`runs?project=${projectId}`); if (seq !== activeRequest.current) return;
-    setRuns(rs); const selected = rs.find(r => r.id === runId)?.id ?? rs[0]?.id;
-    if (!selected) { setDetail(null); return; }
-    const d = await api<RunDetail>(`runs/${selected}`); if (seq === activeRequest.current) setDetail(d);
+    const rs = await api<Run[]>(`runs?project=${projectId}`);
+    if (seq !== activeRequest.current) return;
+    setRuns(rs);
+    const selected = rs.find((r) => r.id === runId)?.id ?? rs[0]?.id;
+    if (!selected) {
+      setDetail(null);
+      return;
+    }
+    const d = await api<RunDetail>(`runs/${selected}`);
+    if (seq === activeRequest.current) setDetail(d);
   }, [projectId, runId]);
-  useEffect(() => { setDetail(null); refreshRuns().catch(e => setError(e.message)); return () => { activeRequest.current++; }; }, [refreshRuns]);
-  useEffect(() => { if (!state) return; const timer = setInterval(() => { Promise.all([refresh(), refreshRuns()]).catch(e => setError(e.message)); }, 8000); return () => clearInterval(timer); }, [state?.user.id, refresh, refreshRuns]);
+  useEffect(() => {
+    setDetail(null);
+    refreshRuns().catch((e) => setError(e.message));
+    return () => {
+      activeRequest.current++;
+    };
+  }, [refreshRuns]);
+  useEffect(() => {
+    if (!state) return;
+    const timer = setInterval(() => {
+      Promise.all([refresh(), refreshRuns()]).catch((e) => setError(e.message));
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [state?.user.id, refresh, refreshRuns]);
   async function act(action: () => Promise<unknown>, message?: string) {
-    setBusy(true); setError(""); setNotice("");
-    try { await action(); await refresh(); await refreshRuns(); setModal(null); if (message) setNotice(message); }
-    catch (e) { setError(e instanceof Error ? e.message : "internal_error"); }
-    finally { setBusy(false); }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await action();
+      await refresh();
+      await refreshRuns();
+      setModal(null);
+      if (message) setNotice(message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "internal_error");
+    } finally {
+      setBusy(false);
+    }
   }
   const nav = [
-    { id: "overview", title: t("Vue d’ensemble", "Overview"), icon: LayoutDashboard }, { id: "queries", title: t("Requêtes suivies", "Tracked queries"), icon: MessageSquareText },
-    { id: "competitors", title: t("Concurrents", "Competitors"), icon: Users }, { id: "sources", title: t("Sources & citations", "Sources & citations"), icon: Globe2 },
-    { id: "history", title: t("Historique & exports", "History & exports"), icon: History }, { id: "settings", title: t("Paramètres", "Settings"), icon: Settings2 }, { id: "usage", title: t("Consommation", "Usage & budget"), icon: Wallet },
+    { id: "overview", title: t("Vue d’ensemble", "Overview"), icon: LayoutDashboard },
+    { id: "queries", title: t("Requêtes suivies", "Tracked queries"), icon: MessageSquareText },
+    { id: "competitors", title: t("Concurrents", "Competitors"), icon: Users },
+    { id: "sources", title: t("Sources & citations", "Sources & citations"), icon: Globe2 },
+    { id: "history", title: t("Historique & exports", "History & exports"), icon: History },
+    { id: "settings", title: t("Paramètres", "Settings"), icon: Settings2 },
+    { id: "usage", title: t("Consommation", "Usage & budget"), icon: Wallet },
   ] as const;
-  const valid = detail?.responses.filter(r => r.status === "succeeded") ?? [];
-  const primary = detail?.run.snapshot.brands.find(b => b.is_primary);
-  const count = primary ? new Set(detail?.mentions.filter(m => m.brand_id === primary.id).map(m => m.response_id)).size : 0;
+  const valid = detail?.responses.filter((r) => r.status === "succeeded") ?? [];
+  const primary = detail?.run.snapshot.brands.find((b) => b.is_primary);
+  const count = primary
+    ? new Set(detail?.mentions.filter((m) => m.brand_id === primary.id).map((m) => m.response_id))
+        .size
+    : 0;
   const metric = mentionRate(count, valid.length);
-  const date = (value: string) => new Date(value).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
-  const status = (value: string) => ({ queued: t("En attente", "Queued"), running: t("En cours", "Running"), succeeded: t("Valide", "Valid"), failed: t("Échec", "Failed"), invalid: t("Non exploitable", "Invalid"), uncertain: t("Interrompue", "Interrupted") }[value] ?? value);
-  const controls = <><Button variant="ghost" size="icon" onClick={() => setDark(!dark)} aria-label={t("Changer de thème", "Toggle theme")}>{dark ? <Sun size={17}/> : <Moon size={17}/>}</Button><button className="language" onClick={() => setLang(lang === "fr" ? "en" : "fr")} aria-label={t("Passer en anglais", "Switch to French")}>{lang.toUpperCase()} <ChevronDown size={12}/></button></>;
-  if (loading) return <main className="auth"><div className="loading-mark"><Radio size={32}/><p>{t("Ouverture de votre espace…", "Opening your workspace…")}</p></div></main>;
-  if (!state) return <main className="auth"><div className="auth-controls">{controls}</div><div className="auth-brand"><div className="logo"><Radio size={22}/></div><span>AI Visibility <b>OS</b></span></div><div className="card auth-card"><span className="eyebrow">COMMUNITY EDITION</span><h1>{setup ? t("Votre visibilité, vos preuves.", "Your visibility. Your evidence.") : t("Bienvenue dans votre espace.", "Welcome to your workspace.")}</h1><p className="muted">{setup ? t("Créez le compte propriétaire de cette installation pour commencer à mesurer.", "Create this installation’s owner account to start measuring.") : t("Connectez-vous pour retrouver vos projets et vos mesures.", "Sign in to access your projects and measurements.")}</p><form onSubmit={async e => { e.preventDefault(); const data = new FormData(e.currentTarget); setBusy(true); setError(""); try { await api(`auth/${setup ? "register" : "login"}`, "POST", Object.fromEntries(data)); await refresh(); } catch (err) { setError((err as Error).message); } finally { setBusy(false); } }}>
-    <Field label={t("Adresse e-mail", "Email address")}><input type="email" name="email" required maxLength={254} autoComplete="username" placeholder="vous@agence.fr"/></Field>
-    <Field label={t("Mot de passe", "Password")} hint={t("12 caractères minimum.", "At least 12 characters.")}><input type="password" name="password" required minLength={12} maxLength={128} autoComplete={setup ? "new-password" : "current-password"}/></Field>
-    {setup && <Field label={t("Code d’installation", "Setup code")} hint={t("La valeur BOOTSTRAP_TOKEN dans votre fichier .env.", "The BOOTSTRAP_TOKEN value in your .env file.")}><input type="password" name="bootstrapToken" required autoComplete="off"/></Field>}
-    {error && <p role="alert" className="alert error">{friendly(error, t)}</p>}<Button className="full" disabled={busy}>{busy ? t("Connexion…", "Connecting…") : setup ? t("Créer mon espace", "Create workspace") : t("Se connecter", "Sign in")}<ArrowRight size={16}/></Button></form></div><p className="auth-foot"><ShieldCheck size={15}/>{t("Auto-hébergé. Clés chiffrées. Mesures traçables.", "Self-hosted. Encrypted keys. Traceable measurements.")}</p></main>;
-  return <ModalError.Provider value={error ? friendly(error,t) : ""}><div className="workspace">
-    <aside className={`sidebar ${mobile ? "sidebar-open" : ""}`}><a className="brand" href="/"><div className="logo"><Radio size={21}/></div><span>AI Visibility <b>OS</b></span></a><div className="workspace-label">{t("ESPACE DE TRAVAIL", "WORKSPACE")}</div><div className="workspace-switch"><div className="avatar">C</div><div><strong>Community</strong><small>{t("Installation privée", "Private installation")}</small></div><span className="badge">OSS</span></div><div className="nav-label">{t("ANALYSE", "ANALYTICS")}</div><nav>{nav.map((item, i) => <button key={item.id} className={`nav-item ${tab === item.id ? "active" : ""} ${i === 5 ? "nav-separated" : ""}`} onClick={() => { setTab(item.id); setMobile(false); }}><item.icon size={18}/>{item.title}{item.id === "queries" && project && <span className="nav-count">{project.queries.length}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="method-note"><ShieldCheck size={18}/><strong>{t("La preuve avant le score", "Evidence before scores")}</strong><p>{t("Chaque indicateur renvoie aux réponses qui le composent.", "Every metric links back to its underlying responses.")}</p></div><div className="user-row"><div className="avatar user-avatar">{state.user.email[0].toUpperCase()}</div><span title={state.user.email}>{state.user.email}<small>{t("Propriétaire", "Owner")}</small></span><Button variant="ghost" size="icon" aria-label={t("Déconnexion", "Sign out")} onClick={async () => { try { await api("auth/logout", "POST"); setState(null); setSetup(false); setDetail(null); } catch (e) { setError((e as Error).message); } }}><LogOut size={16}/></Button></div></div></aside>
-    {mobile && <button className="sidebar-scrim" aria-label="Close menu" onClick={() => setMobile(false)}/>}
-    <div className="main-shell"><header className="topbar"><div className="topbar-left"><Button className="mobile-menu" variant="ghost" size="icon" onClick={() => setMobile(!mobile)} aria-label="Menu"><Menu size={20}/></Button><span className="breadcrumb">{t("Espace de travail", "Workspace")}</span><span className="muted">/</span><strong>{nav.find(n => n.id === tab)?.title}</strong></div><div className="topbar-right"><span className="worker-indicator"><i className={state.workerOnline ? "online" : "offline"}/>{state.workerOnline ? t("Worker actif", "Worker online") : t("Worker arrêté", "Worker offline")}</span>{controls}</div></header>
-    <main className="content"><div className="page-heading"><div><span className="eyebrow">AI VISIBILITY OS / {t("OBSERVATOIRE", "OBSERVATORY")}</span><h1>{nav.find(n => n.id === tab)?.title}</h1><p className="muted">{t("Comprenez comment votre marque apparaît dans les réponses IA mesurées.", "Understand how your brand appears in measured AI responses.")}</p></div><Button onClick={() => setModal("project")} variant="outline"><Plus size={16}/>{t("Nouveau projet", "New project")}</Button></div>
-    {error && <div className="alert error" role="alert">{friendly(error, t)}<button onClick={() => setError("")} aria-label="Close"><X size={16}/></button></div>}{notice && <div className="alert success" role="status"><Check size={17}/>{notice}</div>}
-    <div className="scopebar"><div className="project-picker"><div className="project-symbol"><Layers3 size={18}/></div><select aria-label={t("Projet actif", "Active project")} value={projectId} onChange={e => { setProjectId(e.target.value); setRunId(""); }}>{!state.projects.length && <option value="">{t("Aucun projet", "No project")}</option>}{state.projects.map(p => <option value={p.id} key={p.id}>{p.name} · {p.domain}</option>)}</select></div><div className="scope-actions"><span className="badge"><Globe2 size={12}/>{project ? `${project.country} · ${project.language.toUpperCase()}` : "FR / EN"}</span><Button disabled={!project || busy} onClick={() => setModal("run")}><Play size={14}/>{t("Lancer une mesure", "Run measurement")}</Button></div></div>
-    <div className="disclosure"><CircleHelp size={15}/><span>{t("Canal : API officielles. Ces mesures n’observent pas les interfaces grand public ChatGPT ou Gemini. Le pays est un contexte textuel, pas une géolocalisation.", "Channel: official APIs. These measurements do not observe the consumer ChatGPT or Gemini interfaces. Country is prompt context, not geolocation.")}</span></div>
-    {!["settings", "usage"].includes(tab) && !project ? <div className="card welcome"><span className="step-tag">01 — {t("PREMIER PROJET", "FIRST PROJECT")}</span><h2>{t("Votre marque est-elle dans la conversation ?", "Is your brand part of the conversation?")}</h2><p className="muted">{t("Ajoutez une marque, ses concurrents et les questions de vos clients. Connectez vos clés API pour obtenir vos premières réponses réelles.", "Add a brand, its competitors and your customers’ questions. Connect your API keys to collect your first real responses.")}</p><Button onClick={() => setModal("project")}>{t("Configurer mon premier projet", "Set up my first project")}<ArrowRight size={16}/></Button><div className="welcome-steps">{[t("Définir les questions", "Define questions"), t("Collecter les réponses", "Collect responses"), t("Vérifier les mentions", "Verify mentions")].map((s,i) => <div key={s}><span>0{i+1}</span><strong>{s}</strong></div>)}</div></div> : null}
-    {project && !["settings", "usage"].includes(tab) && <><div className="section-toolbar"><div className="inline"><span className="section-kicker">{t("CAMPAGNE", "CAMPAIGN")}</span><select className="select-subtle" aria-label={t("Campagne sélectionnée", "Selected campaign")} value={detail?.run.id ?? ""} onChange={e => setRunId(e.target.value)}>{!runs.length && <option value="">{t("Aucune mesure", "No measurements")}</option>}{runs.map(r => <option key={r.id} value={r.id}>{date(r.created_at)} · {r.valid}/{r.total}</option>)}</select></div>{detail && <a className="text-link" href={`/api/runs/${detail.run.id}/export`}><ArrowDownToLine size={15}/>CSV</a>}</div>
-    {tab === "overview" && <><div className="stats-grid"><Metric label="Visibility Score" value={metric.rate == null ? "—" : `${metric.rate.toFixed(1)}%`} icon={<Activity size={18}/>} note={t("Taux de mention explicite · formule v1", "Explicit mention rate · formula v1")} sub={valid.length ? `${count} / ${valid.length} ${t("réponses valides", "valid responses")}` : t("Aucune réponse valide", "No valid responses")}/><Metric label={t("Réponses valides", "Valid responses")} value={detail ? String(valid.length) : "—"} icon={<MessageSquareText size={18}/>} note={t("Les échecs sont exclus du dénominateur", "Failures are excluded from the denominator")} sub={detail ? `${detail.run.total} ${t("prévues", "planned")} · ${detail.run.pending} ${t("en attente", "pending")}` : t("En attente de la première campagne", "Awaiting your first campaign")}/><Metric label={t("Marques comparées", "Brands compared")} value={String(detail?.run.snapshot.brands.length ?? project.brands.length)} icon={<Users size={18}/>} note={t("Même échantillon pour chaque marque", "The same sample for every brand")} sub={t("Marque principale + concurrents", "Primary brand + competitors")}/><Metric label={t("Coût API estimé", "Estimated API cost")} value={detail ? money(detail.responses.reduce((s,r) => s + (r.cost_micros ?? 0),0)) : "—"} icon={<Wallet size={18}/>} note={t("USD · consommation connue uniquement", "USD · known usage only")} sub={detail?.responses.some(r => r.status !== "queued" && r.cost_micros === null) ? t("Des coûts restent inconnus", "Some costs remain unknown") : t("Tarifs de référence, hors taxes", "Reference prices, before tax")}/></div>
-    <div className="analytics-grid"><section className="card"><div className="card-heading"><div><h2>{t("Visibilité dans le temps", "Visibility over time")}</h2><p>{t("Campagnes terminées avec une configuration identique", "Finished campaigns with identical configuration")}</p></div><span className="badge">{t("Taux de mention", "Mention rate")}</span></div><HistoryChart runs={runs} detail={detail} t={t} date={date}/></section><section className="card"><div className="card-heading"><div><h2>{t("Part de présence", "Brand presence")}</h2><p>{t("Mentions dans les réponses valides", "Mentions in valid responses")}</p></div><Users size={17}/></div><Comparison detail={detail} t={t}/></section></div>
-    <section className="card"><div className="card-heading"><div><h2>{t("Détail par fournisseur", "Provider breakdown")}</h2><p>{t("Chaque canal est mesuré et identifié séparément", "Each channel is measured and identified separately")}</p></div><span className="badge">OFFICIAL API</span></div>{detail ? <div className="table-wrap"><table><thead><tr><th>{t("Fournisseur / modèle", "Provider / model")}</th><th>{t("Réponses valides", "Valid responses")}</th><th>{t("Mentions de la marque", "Brand mentions")}</th><th>{t("Taux observé", "Observed rate")}</th></tr></thead><tbody>{detail.run.snapshot.providers.map(pr => { const rows = valid.filter(r=>r.provider===pr), ids = new Set(rows.map(r=>r.id)), n = new Set(detail.mentions.filter(m=>m.brand_id===primary?.id && ids.has(m.response_id)).map(m=>m.response_id)).size; return <tr key={pr}><td><strong>{pr === "openai" ? "OpenAI" : "Google Gemini"}</strong><small className="block muted mono">{detail.run.snapshot.models[pr]}</small></td><td>{rows.length}</td><td>{n} / {rows.length}</td><td>{rows.length ? `${(100*n/rows.length).toFixed(1)}%` : "—"}</td></tr>; })}</tbody></table></div> : <Empty title={t("Les preuves commencent ici", "Evidence starts here")}>{t("Connectez au moins un fournisseur et lancez une campagne. Aucun résultat de démonstration n’est affiché.", "Connect at least one provider and start a campaign. No demo results are displayed.")}</Empty>}</section>
-    <details className="methodology"><summary><ShieldCheck size={16}/>{t("Méthodologie et limites de cette mesure", "Methodology and measurement limits")}</summary><p>{t("Visibility Score = Brand Mention Rate = 100 × réponses valides mentionnant explicitement la marque / nombre de réponses valides. Une marque est comptée au plus une fois par réponse. Une mention ne signifie pas une recommandation.", "Visibility Score = Brand Mention Rate = 100 × valid responses explicitly mentioning the brand / valid responses. Each brand is counted at most once per response. A mention is not an endorsement.")}</p><p>{metric.low != null ? `${t("Intervalle de Wilson à 95 %", "95% Wilson interval")} : ${metric.low.toFixed(1)}–${metric.high!.toFixed(1)} %. ` : ""}{t("L’intervalle décrit l’incertitude d’échantillonnage sous hypothèse d’indépendance. Les réponses peuvent être corrélées ; ce résultat ne représente pas toute la visibilité sur Internet. Pas de recherche web activée, pas de classement inventé.", "The interval describes sampling uncertainty under an independence assumption. Responses may be correlated; this does not represent overall Internet visibility. Web search is not enabled. No invented rankings.")}</p></details></>}
-    {tab === "queries" && <section className="card"><div className="card-heading"><div><h2>{t("Les questions de vos clients", "Your customers’ questions")}</h2><p>{project.queries.length}/50 {t("requêtes configurées", "configured queries")}</p></div><Button size="sm" variant="outline" onClick={()=>setModal("query")}><Plus size={14}/>{t("Ajouter", "Add")}</Button></div><div className="table-wrap"><table><thead><tr><th>{t("Requête", "Query")}</th><th>{t("Échantillon valide", "Valid sample")}</th><th>{t("Présence de la marque", "Brand presence")}</th><th/></tr></thead><tbody>{project.queries.map(q=> { const rows = valid.filter(r=>r.query_text===q.text), ids = new Set(rows.map(r=>r.id)), n = new Set(detail?.mentions.filter(m=>ids.has(m.response_id)&&m.brand_id===primary?.id).map(m=>m.response_id)).size; return <tr key={q.id}><td className="question-cell">{q.text}</td><td>{rows.length || "—"}</td><td>{rows.length ? `${n} / ${rows.length}` : "—"}</td><td><Button size="icon" variant="ghost" disabled={busy} aria-label={t("Retirer la requête", "Remove query")} onClick={()=>act(()=>api(`queries/${q.id}`,"DELETE"))}><Trash2 size={14}/></Button></td></tr>; })}</tbody></table></div><div className="card-note">{t("Les changements s’appliquent à la prochaine campagne. Les campagnes passées gardent leur configuration d’origine.", "Changes apply to the next campaign. Past campaigns retain their original configuration.")}</div></section>}
-    {tab === "competitors" && <div className="analytics-grid"><section className="card"><div className="card-heading"><div><h2>{t("Marques suivies", "Tracked brands")}</h2><p>{t("Noms explicites et domaines", "Explicit names and domains")}</p></div><Button size="sm" variant="outline" onClick={()=>setModal("brand")}><Plus size={14}/>{t("Ajouter", "Add")}</Button></div>{project.brands.map(b=><div className="brand-line" key={b.id}><div className="avatar">{b.name[0].toUpperCase()}</div><div className="grow"><strong>{b.name}</strong><small className="block muted">{b.domain}</small></div>{b.is_primary ? <span className="badge green">{t("Votre marque", "Your brand")}</span> : <Button variant="ghost" size="icon" disabled={busy} aria-label={t("Retirer le concurrent", "Remove competitor")} onClick={()=>act(()=>api(`brands/${b.id}`,"DELETE"))}><Trash2 size={14}/></Button>}</div>)}</section><section className="card"><div className="card-heading"><div><h2>{t("Comparaison observée", "Observed comparison")}</h2><p>{t("Un dénominateur commun, des preuves accessibles", "Shared denominator, accessible evidence")}</p></div></div><Comparison detail={detail} t={t}/></section></div>}
-    {tab === "sources" && <section className="card"><div className="card-heading"><div><h2>{t("Sources effectivement retournées", "Sources actually returned")}</h2><p>{t("Uniquement les annotations structurées des fournisseurs", "Only structured provider annotations")}</p></div><Globe2 size={18}/></div>{detail?.citations.length ? <div className="table-wrap"><table><thead><tr><th>{t("Source", "Source")}</th><th>{t("Provenance", "Provenance")}</th><th>{t("Preuve", "Evidence")}</th></tr></thead><tbody>{detail.citations.map((c,i)=><tr key={i}><td><a className="text-link" href={c.url} target="_blank" rel="noreferrer">{c.title||c.domain}<ExternalLink size={12}/></a><small className="block muted">{c.domain}</small></td><td>{c.provenance}</td><td><Button size="sm" variant="ghost" onClick={()=>setResponse(detail.responses.find(r=>r.id===c.response_id)??null)}>{t("Voir la réponse", "View response")}</Button></td></tr>)}</tbody></table></div> : <Empty icon={<Globe2 size={24}/>} title={t("Aucune citation vérifiable", "No verifiable citations")}>{t("Les connecteurs actuels n’activent pas de recherche web. Les liens écrits dans le texte des réponses ne sont pas considérés comme des citations vérifiées.", "The current connectors do not enable web search. Links written in response text are not treated as verified citations.")}</Empty>}</section>}
-    {tab === "history" && <section className="card"><div className="card-heading"><div><h2>{t("Journal des réponses", "Response ledger")}</h2><p>{t("Question exacte, modèle, statut et réponse intégrale", "Exact question, model, status and full response")}</p></div><span className="badge">{detail?.responses.length??0} {t("exécutions", "executions")}</span></div>{detail ? <div className="table-wrap"><table><thead><tr><th>{t("Question", "Question")}</th><th>{t("Fournisseur", "Provider")}</th><th>{t("Statut", "Status")}</th><th>{t("Coût estimé", "Est. cost")}</th><th/></tr></thead><tbody>{detail.responses.map(r=><tr key={r.id}><td className="question-cell">{r.query_text}<small className="block muted">#{r.sample} · {r.finished_at?date(r.finished_at):t("En attente", "Pending")}</small></td><td>{r.provider}<small className="block muted mono">{r.returned_model||r.model}</small></td><td><span className={`badge ${r.status==="succeeded"?"green":["failed","invalid","uncertain"].includes(r.status)?"red":""}`}>{status(r.status)}</span></td><td>{r.cost_micros==null?"—":money(r.cost_micros)}</td><td><Button variant="ghost" size="sm" onClick={()=>setResponse(r)}>{t("Ouvrir", "Open")}<ArrowRight size={13}/></Button></td></tr>)}</tbody></table></div>:<Empty title={t("Votre historique est vide", "Your history is empty")}>{t("La première campagne apparaîtra ici dès son lancement.", "Your first campaign will appear here as soon as it starts.")}</Empty>}</section>}
-    </>}
-    {tab === "settings" && <><section className="card"><div className="card-heading"><div><h2>{t("Connexions API", "API connections")}</h2><p>{t("Vos propres clés, chiffrées sur le serveur", "Your own keys, encrypted on the server")}</p></div><Button variant="outline" onClick={()=>setModal("credential")}><KeyRound size={15}/>{t("Connecter une clé", "Connect a key")}</Button></div>{["openai","gemini"].map(pr=>{const connected=state.credentials.find(c=>c.provider===pr);return <div className="integration-row" key={pr}><div className="integration-icon">{pr==="openai"?<Sparkles size={22}/>:<Globe2 size={22}/>}</div><div className="grow"><strong>{pr==="openai"?"OpenAI":"Google Gemini"}</strong><p>{pr==="openai"?"Responses API · GPT-4.1 mini":"GenerateContent API · Gemini 2.5 Flash-Lite"}</p></div><span className={`badge ${connected?"green":""}`}>{connected?t("Clé enregistrée", "Key saved"):t("À connecter", "Not connected")}</span>{connected&&<Button variant="ghost" size="icon" disabled={busy} aria-label={t("Supprimer la clé", "Remove key")} onClick={()=>act(()=>api(`credentials/${pr}`,"DELETE"))}><Trash2 size={15}/></Button>}</div>})}<div className="card-note">{t("La validité d’une clé est vérifiée lors d’une mesure réelle. Son enregistrement ne déclenche aucun appel payant.", "Key validity is checked during a real measurement. Saving a key does not trigger a paid API call.")}</div></section><section className="card"><div className="card-heading"><div><h2>{t("Données et confidentialité", "Data & privacy")}</h2><p>{t("Exportez vos données ou supprimez votre espace", "Export your data or delete your workspace")}</p></div><ShieldCheck size={18}/></div><div className="settings-actions"><a className="btn btn-outline" href="/api/account/export"><ArrowDownToLine size={15}/>{t("Exporter mes données", "Export my data")}</a><Button variant="destructive" onClick={()=>setModal("delete")}>{t("Supprimer mon espace", "Delete my workspace")}</Button></div></section><div className="card-note">{t("Community : un propriétaire, plusieurs projets. Les invitations, le SSO et la facturation SaaS sont prévus après validation du MVP.", "Community: one owner, multiple projects. Invitations, SSO and SaaS billing are planned after MVP validation.")}</div></>}
-    {tab === "usage" && <><div className="stats-grid"><Metric label={t("Budget mensuel", "Monthly budget")} value={money(state.usage.budget)} sub={t("Plafond de votre organisation", "Organization ceiling")} note={t("Mois calendaire UTC", "UTC calendar month")} icon={<Wallet size={18}/>}/><Metric label={t("Engagé ce mois", "Committed this month")} value={money(state.usage.amount)} sub={t("Estimé + réservé + incertain", "Estimated + reserved + uncertain")} note={t("Conservé après suppression d’un projet", "Preserved after deleting a project")} icon={<Activity size={18}/>}/><Metric label={t("Réservé", "Reserved")} value={money(state.usage.reserved)} sub={t("Exécutions en attente", "Pending executions")} note={t("Réservation avant chaque campagne", "Reserved before each campaign")} icon={<History size={18}/>}/><Metric label={t("Coût incertain", "Uncertain cost")} value={money(state.usage.uncertain)} sub={t("Réservations conservatrices conservées", "Conservative reservations retained")} note={t("À rapprocher des factures fournisseur", "Reconcile against provider invoices")} icon={<CircleHelp size={18}/>}/></div><section className="card"><div className="card-heading"><div><h2>{t("Maîtrisez votre consommation", "Control your spending")}</h2><p>{t("Community utilise vos clés. Aucun abonnement n’est facturé par cette application.", "Community uses your keys. This application does not charge a subscription.")}</p></div></div><form className="budget-form" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);act(()=>api("budget","POST",{usd:Number(f.get("usd"))}),t("Budget enregistré.","Budget saved."));}}><Field label={t("Plafond mensuel en USD", "Monthly limit in USD")} hint={`${t("Plafond serveur", "Server ceiling")} : ${money(state.usage.ceiling)}`}><input name="usd" type="number" min="0.01" max={state.usage.ceiling/1e6} step="0.01" defaultValue={state.usage.budget/1e6} required/></Field><Button disabled={busy}>{t("Enregistrer le budget", "Save budget")}</Button></form><div className="card-note">{t("Les estimations reposent sur les tarifs du 31 octobre 2026. Elles ne sont pas des factures et ne limitent pas les appels réalisés en dehors de cette installation. Configurez aussi les limites chez vos fournisseurs.", "Estimates use prices checked on 31 October 2026. They are not invoices and do not limit calls made outside this installation. Configure provider-side limits as well.")}</div></section></>}
-    <footer className="page-footer"><span>AI Visibility OS <span className="muted">/</span> Community 0.1</span><a href="https://github.com/DissidentAI/AIVisibilityOS" target="_blank" rel="noreferrer">{t("Code source · AGPLv3", "Source code · AGPLv3")}<ExternalLink size={12}/></a></footer>
-    </main></div>
-    {modal === "project" && <ProjectWizard t={t} busy={busy} onClose={()=>setModal(null)} onSave={data=>act(async()=>{const result=await api<{id:string}>("projects","POST",data);setProjectId(result.id);setRunId("");setTab("settings");},t("Projet créé. Connectez vos clés API, puis lancez une mesure.","Project created. Connect your API keys, then run a measurement."))}/>}
-    {modal === "credential" && <Modal title={t("Connecter un fournisseur", "Connect a provider")} onClose={()=>setModal(null)}><form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);act(()=>api("credentials","POST",Object.fromEntries(f)),t("Clé chiffrée et enregistrée. Lancez une mesure pour vérifier la connexion.","Key encrypted and saved. Run a measurement to verify the connection."));}}><Field label={t("Fournisseur", "Provider")}><select name="provider"><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option></select></Field><Field label={t("Clé API", "API key")} hint={t("Cette clé n’est jamais renvoyée au navigateur.", "This key is never returned to the browser.")}><input name="key" type="password" minLength={20} maxLength={512} required autoComplete="off"/></Field><p className="muted small">{t("Vos questions sont envoyées au fournisseur choisi. N’incluez pas d’informations confidentielles sans autorisation.", "Your questions are sent to the chosen provider. Do not include confidential information without authorization.")}</p><Button disabled={busy} className="full">{t("Enregistrer la clé", "Save key")}</Button></form></Modal>}
-    {modal === "run" && project && <Modal title={t("Nouvelle campagne de mesure", "New measurement campaign")} onClose={()=>setModal(null)}><form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);act(async()=>{const r=await api<{id:string}>("runs","POST",{projectId:project.id,providers:f.getAll("providers"),samples:Number(f.get("samples"))});setRunId(r.id);setTab("history");},t("Campagne mise en file. Les réponses apparaîtront automatiquement.","Campaign queued. Responses will appear automatically."));}}><p className="muted">{project.name} · {project.queries.length} {t("requêtes. Chaque appel utilise une conversation neuve.", "queries. Each call uses a fresh conversation.")}</p><Field label={t("Fournisseurs à interroger", "Providers to query")}><div className="checkboxes">{["openai","gemini"].map(pr=><label key={pr}><input type="checkbox" name="providers" value={pr} defaultChecked={state.credentials.some(c=>c.provider===pr)} disabled={!state.credentials.some(c=>c.provider===pr)}/>{pr==="openai"?"OpenAI":"Google Gemini"}{!state.credentials.some(c=>c.provider===pr)&&<small>{t("Clé requise", "Key required")}</small>}</label>)}</div></Field><Field label={t("Échantillons par requête et fournisseur", "Samples per query and provider")}><select name="samples" defaultValue="1">{[1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}</select></Field><div className="alert info">{t("Une réservation prudente sera déduite du budget disponible. Maximum 5 échantillons, 1 200 tokens de sortie par réponse. Les échecs ne sont pas relancés automatiquement.", "A conservative reservation will be deducted from the available budget. Maximum 5 samples and 1,200 output tokens per response. Failures are not automatically retried.")}</div>{!state.workerOnline&&<p className="alert error">{t("Le worker est arrêté. Démarrez npm run worker pour traiter la file.", "The worker is offline. Start npm run worker to process the queue.")}</p>}<Button className="full" disabled={busy||!state.credentials.length}><Play size={15}/>{t("Lancer les appels API", "Start API calls")}</Button></form></Modal>}
-    {(modal === "query" || modal === "brand") && project && <Modal title={modal==="query"?t("Ajouter une question", "Add a question"):t("Ajouter un concurrent", "Add a competitor")} onClose={()=>setModal(null)}><form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);act(()=>api(`projects/${project.id}/${modal==="query"?"queries":"brands"}`,"POST",Object.fromEntries(f)));}}>{modal==="query"?<Field label={t("Question exacte", "Exact question")}><textarea name="text" minLength={5} maxLength={1000} required rows={4}/></Field>:<><Field label={t("Nom de la marque", "Brand name")}><input name="name" minLength={2} maxLength={100} required/></Field><Field label={t("Domaine", "Domain")}><input name="domain" placeholder="example.com" required/></Field></>}<Button disabled={busy}>{t("Ajouter", "Add")}</Button></form></Modal>}
-    {modal === "delete" && <Modal title={t("Supprimer définitivement l’espace", "Permanently delete workspace")} onClose={()=>setModal(null)}><p className="muted">{t("Tous les projets, réponses, clés et comptes de cet espace seront supprimés. Les sauvegardes relèvent de votre administrateur.", "All projects, responses, keys and accounts in this workspace will be deleted. Backups are managed by your administrator.")}</p><form onSubmit={async e=>{e.preventDefault();const f=new FormData(e.currentTarget);setBusy(true);setError("");try{await api("account","DELETE",Object.fromEntries(f));setModal(null);setState(null);setSetup(true);}catch(err){setError((err as Error).message);}finally{setBusy(false);}}}><Field label={t("Mot de passe actuel", "Current password")}><input name="password" type="password" required/></Field><Field label={t("Saisissez DELETE pour confirmer", "Type DELETE to confirm")}><input name="confirm" pattern="DELETE" required/></Field><Button variant="destructive" disabled={busy}>{t("Supprimer toutes mes données", "Delete all my data")}</Button></form></Modal>}
-    {response && <Modal title={t("Preuve de mesure", "Measurement evidence")} onClose={()=>setResponse(null)} wide><div className="evidence-meta"><span className="badge">{response.provider} · API</span><span className="badge">{status(response.status)}</span><span className="mono muted">{response.returned_model||response.model}</span></div><h3>{response.query_text}</h3><p className="muted small">{response.finished_at?date(response.finished_at):t("En attente", "Pending")} · {t("Échantillon", "Sample")} #{response.sample} · {response.cost_micros==null?t("Coût inconnu", "Cost unknown"):money(response.cost_micros)}</p><div className="answer">{response.answer||t("Aucune réponse disponible.","No response available.")}</div>{response.error_code&&<p className="alert error">{response.error_code}</p>}<h3>{t("Extraits justifiant les mentions", "Evidence supporting mentions")}</h3>{detail?.mentions.filter(m=>m.response_id===response.id).map(m=><blockquote key={m.brand_id}><strong>{m.brand_name}</strong><p>{m.excerpt}</p><small className="muted">{t("Contexte non classifié automatiquement : vérifiez l’extrait.", "Context is not automatically classified: review the excerpt.")}</small></blockquote>)}<details className="methodology"><summary>{t("Paramètres et traçabilité", "Parameters & provenance")}</summary><pre>{JSON.stringify({requestId:response.request_id,requestedModel:response.model,returnedModel:response.returned_model,channel:response.channel,inputTokens:response.input_tokens,outputTokens:response.output_tokens,parameters:response.parameters,system:detail?.run.snapshot.system,configuration:detail?.run.config_hash},null,2)}</pre></details></Modal>}
-  </div></ModalError.Provider>;
-}
-function Metric({ label, value, sub, note, icon }: { label: string; value: string; sub: string; note: string; icon: ReactNode }) { return <div className="metric card"><div className="metric-label">{label}{icon}</div><div className="metric-value">{value}</div><p>{sub}</p><small>{note}</small></div>; }
-function Comparison({ detail, t }: { detail: RunDetail | null; t: Translate }) {
-  if (!detail || !detail.run.valid) return <Empty title={t("Pas encore de comparaison", "No comparison yet")}>{t("Les marques seront comparées sur le même ensemble de réponses valides.", "Brands will be compared using the same set of valid responses.")}</Empty>;
-  return <div className="comparison">{detail.run.snapshot.brands.map(b=>{const n=new Set(detail.mentions.filter(m=>m.brand_id===b.id).map(m=>m.response_id)).size,p=n/detail.run.valid*100;return <div key={b.id} className="comparison-row"><div><strong>{b.name}</strong>{b.is_primary&&<span className="you">{t("VOUS", "YOU")}</span>}<span className="grow"/><span>{n} / {detail.run.valid}<b>{p.toFixed(1)}%</b></span></div><div className="bar-track"><div className={b.is_primary?"bar-primary":"bar-competitor"} style={{width:`${p}%`}}/></div></div>;})}<p className="small muted">n = {detail.run.valid} · {t("Une réponse peut mentionner plusieurs marques.", "One response can mention several brands.")}</p></div>;
-}
-function HistoryChart({ runs, detail, t, date }: { runs: Run[]; detail: RunDetail | null; t: Translate; date: (s:string)=>string }) {
-  const [points,setPoints]=useState<{date:string;rate:number|null;n:number}[]>([]);
-  useEffect(()=>{let cancelled=false;const matches=runs.filter(r=>r.config_hash===detail?.run.config_hash && r.pending===0).slice(0,20).reverse();Promise.all(matches.map(async r=>{const d=await api<RunDetail>(`runs/${r.id}`),b=d.run.snapshot.brands.find(b=>b.is_primary),n=new Set(d.mentions.filter(m=>m.brand_id===b?.id).map(m=>m.response_id)).size;return {date:r.created_at,rate:mentionRate(n,d.run.valid).rate,n:d.run.valid};})).then(p=>{if(!cancelled)setPoints(p);}).catch(()=>{if(!cancelled)setPoints([]);});return()=>{cancelled=true;};},[runs,detail?.run.config_hash]);
-  if(!points.length)return <Empty icon={<Activity size={24}/>} title={t("Une première mesure pour commencer", "Start with a first measurement")}>{t("L’évolution apparaîtra après vos campagnes, sans données artificielles.", "Your completed campaigns will populate this chart, without artificial data.")}</Empty>;
-  return <div className="chart"><ResponsiveContainer width="100%" height={230}><LineChart data={points} margin={{top:15,right:20,left:-15,bottom:5}}><CartesianGrid strokeDasharray="3 6" vertical={false} stroke="var(--border)"/><XAxis dataKey="date" tickFormatter={d=>new Date(d).toLocaleDateString()} tick={{fontSize:11,fill:"var(--muted)"}} axisLine={false} tickLine={false}/><YAxis domain={[0,100]} tickFormatter={v=>`${v}%`} tick={{fontSize:11,fill:"var(--muted)"}} axisLine={false} tickLine={false}/><Tooltip labelFormatter={v=>date(String(v))} formatter={(v,_n,p)=>[`${Number(v).toFixed(1)}% · n=${p.payload.n}`,t("Mentions", "Mentions")]} contentStyle={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8}}/><Line dataKey="rate" type="linear" stroke="var(--accent)" strokeWidth={2.5} dot={{r:4,fill:"var(--accent)"}} connectNulls={false} isAnimationActive={false}/></LineChart></ResponsiveContainer><p className="small muted chart-note">{t("20 dernières campagnes comparables au maximum. Aucune tendance certaine déduite d’un point isolé.", "Up to 20 comparable campaigns. An isolated point does not establish a trend.")}</p></div>;
-}
-function ProjectWizard({ t, busy, onClose, onSave }: { t: Translate; busy: boolean; onClose:()=>void; onSave:(data:unknown)=>void }) {
-  const [step,setStep]=useState(1),[name,setName]=useState(""),[domain,setDomain]=useState(""),[industry,setIndustry]=useState(""),[country,setCountry]=useState("FR"),[language,setLanguage]=useState("fr"),[competitors,setCompetitors]=useState([{name:"",domain:""},{name:"",domain:""}]),[questions,setQuestions]=useState("");
-  function suggest(){const topic=industry||t("ce secteur","this sector");setQuestions(language==="fr"?[`Quelles sont les meilleures solutions dans le secteur ${topic} en ${country} ?`,`Quels services recommandez-vous pour ${topic} ?`,`Quelles alternatives existent pour ${topic} ?`,`Comment choisir une solution pour ${topic} ?`,`Quels outils gratuits sont disponibles pour ${topic} ?`,`Quelles solutions de ${topic} sont les plus simples à utiliser ?`,`Quel comparatif des solutions de ${topic} pouvez-vous proposer ?`,`Quels services de ${topic} conviennent aux particuliers ?`,`Quels critères de fiabilité vérifier pour ${topic} ?`,`Quelles applications mobiles conseillez-vous pour ${topic} ?`].join("\n"):[`What are the best solutions for ${topic} in ${country}?`,`Which services do you recommend for ${topic}?`,`What alternatives are available for ${topic}?`,`How should I choose a solution for ${topic}?`,`Which free tools are available for ${topic}?`,`Which ${topic} solutions are easiest to use?`,`Can you compare solutions for ${topic}?`,`Which ${topic} services suit individuals?`,`What reliability criteria matter for ${topic}?`,`Which mobile apps do you recommend for ${topic}?`].join("\n"));}
-  const qs=questions.split("\n").map(s=>s.trim()).filter(Boolean);
-  return <Modal title={t("Créer un projet", "Create a project")} onClose={onClose}><div className="wizard-steps">{[t("Marque","Brand"),t("Concurrents","Competitors"),t("Questions","Questions")].map((s,i)=><span key={s} className={step===i+1?"current":""}><b>{i+1}</b>{s}</span>)}</div><form onSubmit={(e:FormEvent)=>{e.preventDefault();if(step<3)setStep(step+1);else onSave({name,domain,industry,country,language,competitors:competitors.filter(c=>c.name.trim()&&c.domain.trim()),queries:qs});}}>
-    {step===1&&<><Field label={t("Nom de votre marque", "Your brand name")}><input value={name} onChange={e=>setName(e.target.value)} placeholder="Karburo" required minLength={2} maxLength={100}/></Field><Field label={t("Domaine web", "Website domain")}><input value={domain} onChange={e=>setDomain(e.target.value)} placeholder="votre-marque.fr" required/></Field><Field label={t("Secteur d’activité", "Industry")}><input value={industry} onChange={e=>setIndustry(e.target.value)} placeholder={t("Comparaison des prix des carburants", "Fuel price comparison")} required minLength={2} maxLength={120}/></Field><div className="form-grid"><Field label={t("Pays cible (contexte)", "Target country (context)")}><input value={country} onChange={e=>setCountry(e.target.value.toUpperCase())} pattern="[A-Z]{2}" maxLength={2} required/></Field><Field label={t("Langue des réponses", "Response language")}><select value={language} onChange={e=>setLanguage(e.target.value)}><option value="fr">Français</option><option value="en">English</option></select></Field></div></>}
-    {step===2&&<><p className="muted">{t("Ajoutez jusqu’à deux concurrents ici. Vous pourrez en ajouter d’autres ensuite. Les champs vides sont ignorés.", "Add up to two competitors here. You can add more later. Empty rows are ignored.")}</p>{competitors.map((c,i)=><div className="competitor-form" key={i}><span className="section-kicker">{t("CONCURRENT", "COMPETITOR")} 0{i+1}</span><Field label={t("Nom", "Name")}><input value={c.name} required={!!c.domain} minLength={2} maxLength={100} onChange={e=>setCompetitors(prev=>prev.map((p,j)=>i===j?{...p,name:e.target.value}:p))}/></Field><Field label={t("Domaine", "Domain")}><input value={c.domain} required={!!c.name} placeholder="example.com" onChange={e=>setCompetitors(prev=>prev.map((p,j)=>i===j?{...p,domain:e.target.value}:p))}/></Field></div>)}</>}
-    {step===3&&<><div className="inline between"><p className="muted">{t("Une question par ligne. 50 maximum.", "One question per line. Up to 50.")}</p><Button type="button" size="sm" variant="outline" onClick={suggest}><Sparkles size={14}/>{t("Proposer 10 questions", "Suggest 10 questions")}</Button></div><Field label={t("Questions à surveiller", "Questions to track")} hint={t("Suggestions à adapter à vos clients. La marque n’est pas injectée dans les questions.", "Adapt these suggestions to your customers. Your brand is not injected into the questions.")}><textarea rows={10} value={questions} onChange={e=>setQuestions(e.target.value)} required maxLength={50000}/></Field><p className="small muted">{qs.length}/50 {t("questions", "questions")}</p></>}
-    <div className="modal-actions">{step>1&&<Button type="button" variant="ghost" onClick={()=>setStep(step-1)}>{t("Retour", "Back")}</Button>}<Button disabled={busy||(step===3&&(!qs.length||qs.length>50))}>{step<3?t("Continuer", "Continue"):t("Créer le projet", "Create project")}<ArrowRight size={15}/></Button></div></form></Modal>;
+  const date = (value: string) =>
+    new Date(value).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  const status = (value: string) =>
+    ({
+      queued: t("En attente", "Queued"),
+      running: t("En cours", "Running"),
+      succeeded: t("Valide", "Valid"),
+      failed: t("Échec", "Failed"),
+      invalid: t("Non exploitable", "Invalid"),
+      uncertain: t("Interrompue", "Interrupted"),
+    })[value] ?? value;
+  const controls = (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setDark(!dark)}
+        aria-label={t("Changer de thème", "Toggle theme")}
+      >
+        {dark ? <Sun size={17} /> : <Moon size={17} />}
+      </Button>
+      <button
+        className="language"
+        onClick={() => setLang(lang === "fr" ? "en" : "fr")}
+        aria-label={t("Passer en anglais", "Switch to French")}
+      >
+        {lang.toUpperCase()} <ChevronDown size={12} />
+      </button>
+    </>
+  );
+  if (loading)
+    return (
+      <main className="auth">
+        <div className="loading-mark">
+          <Radio size={32} />
+          <p>{t("Ouverture de votre espace…", "Opening your workspace…")}</p>
+        </div>
+      </main>
+    );
+  if (!state)
+    return (
+      <main className="auth">
+        <div className="auth-controls">{controls}</div>
+        <div className="auth-brand">
+          <div className="logo">
+            <Radio size={22} />
+          </div>
+          <span>
+            AI Visibility <b>OS</b>
+          </span>
+        </div>
+        <div className="card auth-card">
+          <span className="eyebrow">COMMUNITY EDITION</span>
+          <h1>
+            {setup
+              ? t("Votre visibilité, vos preuves.", "Your visibility. Your evidence.")
+              : t("Bienvenue dans votre espace.", "Welcome to your workspace.")}
+          </h1>
+          <p className="muted">
+            {setup
+              ? t(
+                  "Créez le compte propriétaire de cette installation pour commencer à mesurer.",
+                  "Create this installation’s owner account to start measuring.",
+                )
+              : t(
+                  "Connectez-vous pour retrouver vos projets et vos mesures.",
+                  "Sign in to access your projects and measurements.",
+                )}
+          </p>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const data = new FormData(e.currentTarget);
+              setBusy(true);
+              setError("");
+              try {
+                await api(`auth/${setup ? "register" : "login"}`, "POST", Object.fromEntries(data));
+                await refresh();
+              } catch (err) {
+                setError((err as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <Field label={t("Adresse e-mail", "Email address")}>
+              <input
+                type="email"
+                name="email"
+                required
+                maxLength={254}
+                autoComplete="username"
+                placeholder="vous@agence.fr"
+              />
+            </Field>
+            <Field
+              label={t("Mot de passe", "Password")}
+              hint={t("12 caractères minimum.", "At least 12 characters.")}
+            >
+              <input
+                type="password"
+                name="password"
+                required
+                minLength={12}
+                maxLength={128}
+                autoComplete={setup ? "new-password" : "current-password"}
+              />
+            </Field>
+            {setup && (
+              <Field
+                label={t("Code d’installation", "Setup code")}
+                hint={t(
+                  "La valeur BOOTSTRAP_TOKEN dans votre fichier .env.",
+                  "The BOOTSTRAP_TOKEN value in your .env file.",
+                )}
+              >
+                <input type="password" name="bootstrapToken" required autoComplete="off" />
+              </Field>
+            )}
+            {error && (
+              <p role="alert" className="alert error">
+                {friendly(error, t)}
+              </p>
+            )}
+            <Button className="full" disabled={busy}>
+              {busy
+                ? t("Connexion…", "Connecting…")
+                : setup
+                  ? t("Créer mon espace", "Create workspace")
+                  : t("Se connecter", "Sign in")}
+              <ArrowRight size={16} />
+            </Button>
+          </form>
+        </div>
+        <p className="auth-foot">
+          <ShieldCheck size={15} />
+          {t(
+            "Auto-hébergé. Clés chiffrées. Mesures traçables.",
+            "Self-hosted. Encrypted keys. Traceable measurements.",
+          )}
+        </p>
+      </main>
+    );
+  return (
+    <ModalError.Provider value={error ? friendly(error, t) : ""}>
+      <div className="workspace">
+        <aside className={`sidebar ${mobile ? "sidebar-open" : ""}`}>
+          <a className="brand" href="/">
+            <div className="logo">
+              <Radio size={21} />
+            </div>
+            <span>
+              AI Visibility <b>OS</b>
+            </span>
+          </a>
+          <div className="workspace-label">{t("ESPACE DE TRAVAIL", "WORKSPACE")}</div>
+          <div className="workspace-switch">
+            <div className="avatar">C</div>
+            <div>
+              <strong>Community</strong>
+              <small>{t("Installation privée", "Private installation")}</small>
+            </div>
+            <span className="badge">OSS</span>
+          </div>
+          <div className="nav-label">{t("ANALYSE", "ANALYTICS")}</div>
+          <nav>
+            {nav.map((item, i) => (
+              <button
+                key={item.id}
+                className={`nav-item ${tab === item.id ? "active" : ""} ${i === 5 ? "nav-separated" : ""}`}
+                onClick={() => {
+                  setTab(item.id);
+                  setMobile(false);
+                }}
+              >
+                <item.icon size={18} />
+                {item.title}
+                {item.id === "queries" && project && (
+                  <span className="nav-count">{project.queries.length}</span>
+                )}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-bottom">
+            <div className="method-note">
+              <ShieldCheck size={18} />
+              <strong>{t("La preuve avant le score", "Evidence before scores")}</strong>
+              <p>
+                {t(
+                  "Chaque indicateur renvoie aux réponses qui le composent.",
+                  "Every metric links back to its underlying responses.",
+                )}
+              </p>
+            </div>
+            <div className="user-row">
+              <div className="avatar user-avatar">{state.user.email[0].toUpperCase()}</div>
+              <span title={state.user.email}>
+                {state.user.email}
+                <small>{t("Propriétaire", "Owner")}</small>
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("Déconnexion", "Sign out")}
+                onClick={async () => {
+                  try {
+                    await api("auth/logout", "POST");
+                    setState(null);
+                    setSetup(false);
+                    setDetail(null);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                }}
+              >
+                <LogOut size={16} />
+              </Button>
+            </div>
+          </div>
+        </aside>
+        {mobile && (
+          <button
+            className="sidebar-scrim"
+            aria-label="Close menu"
+            onClick={() => setMobile(false)}
+          />
+        )}
+        <div className="main-shell">
+          <header className="topbar">
+            <div className="topbar-left">
+              <Button
+                className="mobile-menu"
+                variant="ghost"
+                size="icon"
+                onClick={() => setMobile(!mobile)}
+                aria-label="Menu"
+              >
+                <Menu size={20} />
+              </Button>
+              <span className="breadcrumb">{t("Espace de travail", "Workspace")}</span>
+              <span className="muted">/</span>
+              <strong>{nav.find((n) => n.id === tab)?.title}</strong>
+            </div>
+            <div className="topbar-right">
+              <span className="worker-indicator">
+                <i className={state.workerOnline ? "online" : "offline"} />
+                {state.workerOnline
+                  ? t("Worker actif", "Worker online")
+                  : t("Worker arrêté", "Worker offline")}
+              </span>
+              {controls}
+            </div>
+          </header>
+          <main className="content">
+            <div className="page-heading">
+              <div>
+                <span className="eyebrow">
+                  AI VISIBILITY OS / {t("OBSERVATOIRE", "OBSERVATORY")}
+                </span>
+                <h1>{nav.find((n) => n.id === tab)?.title}</h1>
+                <p className="muted">
+                  {t(
+                    "Comprenez comment votre marque apparaît dans les réponses IA mesurées.",
+                    "Understand how your brand appears in measured AI responses.",
+                  )}
+                </p>
+              </div>
+              <Button onClick={() => setModal("project")} variant="outline">
+                <Plus size={16} />
+                {t("Nouveau projet", "New project")}
+              </Button>
+            </div>
+            {error && (
+              <div className="alert error" role="alert">
+                {friendly(error, t)}
+                <button onClick={() => setError("")} aria-label="Close">
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            {notice && (
+              <div className="alert success" role="status">
+                <Check size={17} />
+                {notice}
+              </div>
+            )}
+            <div className="scopebar">
+              <div className="project-picker">
+                <div className="project-symbol">
+                  <Layers3 size={18} />
+                </div>
+                <select
+                  aria-label={t("Projet actif", "Active project")}
+                  value={projectId}
+                  onChange={(e) => {
+                    setProjectId(e.target.value);
+                    setRunId("");
+                  }}
+                >
+                  {!state.projects.length && (
+                    <option value="">{t("Aucun projet", "No project")}</option>
+                  )}
+                  {state.projects.map((p) => (
+                    <option value={p.id} key={p.id}>
+                      {p.name} · {p.domain}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="scope-actions">
+                <span className="badge">
+                  <Globe2 size={12} />
+                  {project ? `${project.country} · ${project.language.toUpperCase()}` : "FR / EN"}
+                </span>
+                <Button disabled={!project || busy} onClick={() => setModal("run")}>
+                  <Play size={14} />
+                  {t("Lancer une mesure", "Run measurement")}
+                </Button>
+              </div>
+            </div>
+            <div className="disclosure">
+              <CircleHelp size={15} />
+              <span>
+                {t(
+                  "Canal : API officielles. Ces mesures n’observent pas les interfaces grand public ChatGPT ou Gemini. Le pays est un contexte textuel, pas une géolocalisation.",
+                  "Channel: official APIs. These measurements do not observe the consumer ChatGPT or Gemini interfaces. Country is prompt context, not geolocation.",
+                )}
+              </span>
+            </div>
+            {!["settings", "usage"].includes(tab) && !project ? (
+              <div className="card welcome">
+                <span className="step-tag">01 — {t("PREMIER PROJET", "FIRST PROJECT")}</span>
+                <h2>
+                  {t(
+                    "Votre marque est-elle dans la conversation ?",
+                    "Is your brand part of the conversation?",
+                  )}
+                </h2>
+                <p className="muted">
+                  {t(
+                    "Ajoutez une marque, ses concurrents et les questions de vos clients. Connectez vos clés API pour obtenir vos premières réponses réelles.",
+                    "Add a brand, its competitors and your customers’ questions. Connect your API keys to collect your first real responses.",
+                  )}
+                </p>
+                <Button onClick={() => setModal("project")}>
+                  {t("Configurer mon premier projet", "Set up my first project")}
+                  <ArrowRight size={16} />
+                </Button>
+                <div className="welcome-steps">
+                  {[
+                    t("Définir les questions", "Define questions"),
+                    t("Collecter les réponses", "Collect responses"),
+                    t("Vérifier les mentions", "Verify mentions"),
+                  ].map((s, i) => (
+                    <div key={s}>
+                      <span>0{i + 1}</span>
+                      <strong>{s}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {project && !["settings", "usage"].includes(tab) && (
+              <>
+                <div className="section-toolbar">
+                  <div className="inline">
+                    <span className="section-kicker">{t("CAMPAGNE", "CAMPAIGN")}</span>
+                    <select
+                      className="select-subtle"
+                      aria-label={t("Campagne sélectionnée", "Selected campaign")}
+                      value={detail?.run.id ?? ""}
+                      onChange={(e) => setRunId(e.target.value)}
+                    >
+                      {!runs.length && (
+                        <option value="">{t("Aucune mesure", "No measurements")}</option>
+                      )}
+                      {runs.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {date(r.created_at)} · {r.valid}/{r.total}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {detail && (
+                    <a className="text-link" href={`/api/runs/${detail.run.id}/export`}>
+                      <ArrowDownToLine size={15} />
+                      CSV
+                    </a>
+                  )}
+                </div>
+                {tab === "overview" && (
+                  <>
+                    <div className="stats-grid">
+                      <Metric
+                        label="Visibility Score"
+                        value={metric.rate == null ? "—" : `${metric.rate.toFixed(1)}%`}
+                        icon={<Activity size={18} />}
+                        note={t(
+                          "Taux de mention explicite · formule v1",
+                          "Explicit mention rate · formula v1",
+                        )}
+                        sub={
+                          valid.length
+                            ? `${count} / ${valid.length} ${t("réponses valides", "valid responses")}`
+                            : t("Aucune réponse valide", "No valid responses")
+                        }
+                      />
+                      <Metric
+                        label={t("Réponses valides", "Valid responses")}
+                        value={detail ? String(valid.length) : "—"}
+                        icon={<MessageSquareText size={18} />}
+                        note={t(
+                          "Les échecs sont exclus du dénominateur",
+                          "Failures are excluded from the denominator",
+                        )}
+                        sub={
+                          detail
+                            ? `${detail.run.total} ${t("prévues", "planned")} · ${detail.run.pending} ${t("en attente", "pending")}`
+                            : t(
+                                "En attente de la première campagne",
+                                "Awaiting your first campaign",
+                              )
+                        }
+                      />
+                      <Metric
+                        label={t("Marques comparées", "Brands compared")}
+                        value={String(detail?.run.snapshot.brands.length ?? project.brands.length)}
+                        icon={<Users size={18} />}
+                        note={t(
+                          "Même échantillon pour chaque marque",
+                          "The same sample for every brand",
+                        )}
+                        sub={t("Marque principale + concurrents", "Primary brand + competitors")}
+                      />
+                      <Metric
+                        label={t("Coût API estimé", "Estimated API cost")}
+                        value={
+                          detail
+                            ? money(detail.responses.reduce((s, r) => s + (r.cost_micros ?? 0), 0))
+                            : "—"
+                        }
+                        icon={<Wallet size={18} />}
+                        note={t("USD · consommation connue uniquement", "USD · known usage only")}
+                        sub={
+                          detail?.responses.some(
+                            (r) => r.status !== "queued" && r.cost_micros === null,
+                          )
+                            ? t("Des coûts restent inconnus", "Some costs remain unknown")
+                            : t("Tarifs de référence, hors taxes", "Reference prices, before tax")
+                        }
+                      />
+                    </div>
+                    <div className="analytics-grid">
+                      <section className="card">
+                        <div className="card-heading">
+                          <div>
+                            <h2>{t("Visibilité dans le temps", "Visibility over time")}</h2>
+                            <p>
+                              {t(
+                                "Campagnes complètes, configuration et modèles identiques",
+                                "Complete campaigns with identical configuration and models",
+                              )}
+                            </p>
+                          </div>
+                          <span className="badge">{t("Taux de mention", "Mention rate")}</span>
+                        </div>
+                        <HistoryChart runs={runs} detail={detail} t={t} date={date} />
+                      </section>
+                      <section className="card">
+                        <div className="card-heading">
+                          <div>
+                            <h2>{t("Part de présence", "Brand presence")}</h2>
+                            <p>
+                              {t(
+                                "Mentions dans les réponses valides",
+                                "Mentions in valid responses",
+                              )}
+                            </p>
+                          </div>
+                          <Users size={17} />
+                        </div>
+                        <Comparison detail={detail} t={t} />
+                      </section>
+                    </div>
+                    <section className="card">
+                      <div className="card-heading">
+                        <div>
+                          <h2>{t("Détail par fournisseur", "Provider breakdown")}</h2>
+                          <p>
+                            {t(
+                              "Chaque canal est mesuré et identifié séparément",
+                              "Each channel is measured and identified separately",
+                            )}
+                          </p>
+                        </div>
+                        <span className="badge">OFFICIAL API</span>
+                      </div>
+                      {detail ? (
+                        <div className="table-wrap">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>{t("Fournisseur / modèle", "Provider / model")}</th>
+                                <th>{t("Réponses valides", "Valid responses")}</th>
+                                <th>{t("Mentions de la marque", "Brand mentions")}</th>
+                                <th>{t("Taux observé", "Observed rate")}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detail.run.snapshot.providers.map((pr) => {
+                                const rows = valid.filter((r) => r.provider === pr),
+                                  ids = new Set(rows.map((r) => r.id)),
+                                  n = new Set(
+                                    detail.mentions
+                                      .filter(
+                                        (m) => m.brand_id === primary?.id && ids.has(m.response_id),
+                                      )
+                                      .map((m) => m.response_id),
+                                  ).size;
+                                return (
+                                  <tr key={pr}>
+                                    <td>
+                                      <strong>
+                                        {pr === "openai" ? "OpenAI" : "Google Gemini"}
+                                      </strong>
+                                      <small className="block muted mono">
+                                        {detail.run.snapshot.models[pr]}
+                                      </small>
+                                    </td>
+                                    <td>{rows.length}</td>
+                                    <td>
+                                      {n} / {rows.length}
+                                    </td>
+                                    <td>
+                                      {rows.length
+                                        ? `${((100 * n) / rows.length).toFixed(1)}%`
+                                        : "—"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <Empty title={t("Les preuves commencent ici", "Evidence starts here")}>
+                          {t(
+                            "Connectez au moins un fournisseur et lancez une campagne. Aucun résultat de démonstration n’est affiché.",
+                            "Connect at least one provider and start a campaign. No demo results are displayed.",
+                          )}
+                        </Empty>
+                      )}
+                    </section>
+                    <details className="methodology">
+                      <summary>
+                        <ShieldCheck size={16} />
+                        {t(
+                          "Méthodologie et limites de cette mesure",
+                          "Methodology and measurement limits",
+                        )}
+                      </summary>
+                      <p>
+                        {t(
+                          "Visibility Score = Brand Mention Rate = 100 × réponses valides mentionnant explicitement la marque / nombre de réponses valides. Une marque est comptée au plus une fois par réponse. Une mention ne signifie pas une recommandation.",
+                          "Visibility Score = Brand Mention Rate = 100 × valid responses explicitly mentioning the brand / valid responses. Each brand is counted at most once per response. A mention is not an endorsement.",
+                        )}
+                      </p>
+                      <p>
+                        {metric.low != null
+                          ? `${t("Intervalle de Wilson à 95 %", "95% Wilson interval")} : ${metric.low.toFixed(1)}–${metric.high!.toFixed(1)} %. `
+                          : ""}
+                        {t(
+                          "L’intervalle décrit l’incertitude d’échantillonnage sous hypothèse d’indépendance. Les réponses peuvent être corrélées ; ce résultat ne représente pas toute la visibilité sur Internet. Pas de recherche web activée, pas de classement inventé.",
+                          "The interval describes sampling uncertainty under an independence assumption. Responses may be correlated; this does not represent overall Internet visibility. Web search is not enabled. No invented rankings.",
+                        )}
+                      </p>
+                    </details>
+                  </>
+                )}
+                {tab === "queries" && (
+                  <section className="card">
+                    <div className="card-heading">
+                      <div>
+                        <h2>{t("Les questions de vos clients", "Your customers’ questions")}</h2>
+                        <p>
+                          {project.queries.length}/50{" "}
+                          {t("requêtes configurées", "configured queries")}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => setModal("query")}>
+                        <Plus size={14} />
+                        {t("Ajouter", "Add")}
+                      </Button>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{t("Requête", "Query")}</th>
+                            <th>{t("Échantillon valide", "Valid sample")}</th>
+                            <th>{t("Présence de la marque", "Brand presence")}</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {project.queries.map((q) => {
+                            const rows = valid.filter((r) => r.query_text === q.text),
+                              ids = new Set(rows.map((r) => r.id)),
+                              n = new Set(
+                                detail?.mentions
+                                  .filter(
+                                    (m) => ids.has(m.response_id) && m.brand_id === primary?.id,
+                                  )
+                                  .map((m) => m.response_id),
+                              ).size;
+                            return (
+                              <tr key={q.id}>
+                                <td className="question-cell">{q.text}</td>
+                                <td>{rows.length || "—"}</td>
+                                <td>{rows.length ? `${n} / ${rows.length}` : "—"}</td>
+                                <td>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    disabled={busy}
+                                    aria-label={t("Retirer la requête", "Remove query")}
+                                    onClick={() => act(() => api(`queries/${q.id}`, "DELETE"))}
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="card-note">
+                      {t(
+                        "Les changements s’appliquent à la prochaine campagne. Les campagnes passées gardent leur configuration d’origine.",
+                        "Changes apply to the next campaign. Past campaigns retain their original configuration.",
+                      )}
+                    </div>
+                  </section>
+                )}
+                {tab === "competitors" && (
+                  <div className="analytics-grid">
+                    <section className="card">
+                      <div className="card-heading">
+                        <div>
+                          <h2>{t("Marques suivies", "Tracked brands")}</h2>
+                          <p>{t("Noms explicites et domaines", "Explicit names and domains")}</p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => setModal("brand")}>
+                          <Plus size={14} />
+                          {t("Ajouter", "Add")}
+                        </Button>
+                      </div>
+                      {project.brands.map((b) => (
+                        <div className="brand-line" key={b.id}>
+                          <div className="avatar">{b.name[0].toUpperCase()}</div>
+                          <div className="grow">
+                            <strong>{b.name}</strong>
+                            <small className="block muted">{b.domain}</small>
+                          </div>
+                          {b.is_primary ? (
+                            <span className="badge green">{t("Votre marque", "Your brand")}</span>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={busy}
+                              aria-label={t("Retirer le concurrent", "Remove competitor")}
+                              onClick={() => act(() => api(`brands/${b.id}`, "DELETE"))}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </section>
+                    <section className="card">
+                      <div className="card-heading">
+                        <div>
+                          <h2>{t("Comparaison observée", "Observed comparison")}</h2>
+                          <p>
+                            {t(
+                              "Un dénominateur commun, des preuves accessibles",
+                              "Shared denominator, accessible evidence",
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <Comparison detail={detail} t={t} />
+                    </section>
+                  </div>
+                )}
+                {tab === "sources" && (
+                  <section className="card">
+                    <div className="card-heading">
+                      <div>
+                        <h2>
+                          {t("Sources effectivement retournées", "Sources actually returned")}
+                        </h2>
+                        <p>
+                          {t(
+                            "Uniquement les annotations structurées des fournisseurs",
+                            "Only structured provider annotations",
+                          )}
+                        </p>
+                      </div>
+                      <Globe2 size={18} />
+                    </div>
+                    {detail?.citations.length ? (
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>{t("Source", "Source")}</th>
+                              <th>{t("Provenance", "Provenance")}</th>
+                              <th>{t("Preuve", "Evidence")}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detail.citations.map((c, i) => (
+                              <tr key={i}>
+                                <td>
+                                  <a
+                                    className="text-link"
+                                    href={c.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {c.title || c.domain}
+                                    <ExternalLink size={12} />
+                                  </a>
+                                  <small className="block muted">{c.domain}</small>
+                                </td>
+                                <td>{c.provenance}</td>
+                                <td>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      setResponse(
+                                        detail.responses.find((r) => r.id === c.response_id) ??
+                                          null,
+                                      )
+                                    }
+                                  >
+                                    {t("Voir la réponse", "View response")}
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <Empty
+                        icon={<Globe2 size={24} />}
+                        title={t("Aucune citation vérifiable", "No verifiable citations")}
+                      >
+                        {t(
+                          "Les connecteurs actuels n’activent pas de recherche web. Les liens écrits dans le texte des réponses ne sont pas considérés comme des citations vérifiées.",
+                          "The current connectors do not enable web search. Links written in response text are not treated as verified citations.",
+                        )}
+                      </Empty>
+                    )}
+                  </section>
+                )}
+                {tab === "history" && (
+                  <section className="card">
+                    <div className="card-heading">
+                      <div>
+                        <h2>{t("Journal des réponses", "Response ledger")}</h2>
+                        <p>
+                          {t(
+                            "Question exacte, modèle, statut et réponse intégrale",
+                            "Exact question, model, status and full response",
+                          )}
+                        </p>
+                      </div>
+                      <span className="badge">
+                        {detail?.responses.length ?? 0} {t("exécutions", "executions")}
+                      </span>
+                    </div>
+                    {detail ? (
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>{t("Question", "Question")}</th>
+                              <th>{t("Fournisseur", "Provider")}</th>
+                              <th>{t("Statut", "Status")}</th>
+                              <th>{t("Coût estimé", "Est. cost")}</th>
+                              <th />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detail.responses.map((r) => (
+                              <tr key={r.id}>
+                                <td className="question-cell">
+                                  {r.query_text}
+                                  <small className="block muted">
+                                    #{r.sample} ·{" "}
+                                    {r.finished_at
+                                      ? date(r.finished_at)
+                                      : t("En attente", "Pending")}
+                                  </small>
+                                </td>
+                                <td>
+                                  {r.provider}
+                                  <small className="block muted mono">
+                                    {r.returned_model || r.model}
+                                  </small>
+                                </td>
+                                <td>
+                                  <span
+                                    className={`badge ${r.status === "succeeded" ? "green" : ["failed", "invalid", "uncertain"].includes(r.status) ? "red" : ""}`}
+                                  >
+                                    {status(r.status)}
+                                  </span>
+                                </td>
+                                <td>{r.cost_micros == null ? "—" : money(r.cost_micros)}</td>
+                                <td>
+                                  <Button variant="ghost" size="sm" onClick={() => setResponse(r)}>
+                                    {t("Ouvrir", "Open")}
+                                    <ArrowRight size={13} />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <Empty title={t("Votre historique est vide", "Your history is empty")}>
+                        {t(
+                          "La première campagne apparaîtra ici dès son lancement.",
+                          "Your first campaign will appear here as soon as it starts.",
+                        )}
+                      </Empty>
+                    )}
+                  </section>
+                )}
+              </>
+            )}
+            {tab === "settings" && (
+              <>
+                <section className="card">
+                  <div className="card-heading">
+                    <div>
+                      <h2>{t("Connexions API", "API connections")}</h2>
+                      <p>
+                        {t(
+                          "Vos propres clés, chiffrées sur le serveur",
+                          "Your own keys, encrypted on the server",
+                        )}
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={() => setModal("credential")}>
+                      <KeyRound size={15} />
+                      {t("Connecter une clé", "Connect a key")}
+                    </Button>
+                  </div>
+                  {["openai", "gemini"].map((pr) => {
+                    const connected = state.credentials.find((c) => c.provider === pr);
+                    return (
+                      <div className="integration-row" key={pr}>
+                        <div className="integration-icon">
+                          {pr === "openai" ? <Sparkles size={22} /> : <Globe2 size={22} />}
+                        </div>
+                        <div className="grow">
+                          <strong>{pr === "openai" ? "OpenAI" : "Google Gemini"}</strong>
+                          <p>
+                            {pr === "openai"
+                              ? "Responses API · GPT-4.1 mini"
+                              : "GenerateContent API · Gemini 2.5 Flash-Lite"}
+                          </p>
+                        </div>
+                        <span className={`badge ${connected ? "green" : ""}`}>
+                          {connected
+                            ? t("Clé enregistrée", "Key saved")
+                            : t("À connecter", "Not connected")}
+                        </span>
+                        {connected && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={busy}
+                            aria-label={t("Supprimer la clé", "Remove key")}
+                            onClick={() => act(() => api(`credentials/${pr}`, "DELETE"))}
+                          >
+                            <Trash2 size={15} />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="card-note">
+                    {t(
+                      "La validité d’une clé est vérifiée lors d’une mesure réelle. Son enregistrement ne déclenche aucun appel payant.",
+                      "Key validity is checked during a real measurement. Saving a key does not trigger a paid API call.",
+                    )}
+                  </div>
+                </section>
+                <section className="card">
+                  <div className="card-heading">
+                    <div>
+                      <h2>{t("Données et confidentialité", "Data & privacy")}</h2>
+                      <p>
+                        {t(
+                          "Exportez vos données ou supprimez votre espace",
+                          "Export your data or delete your workspace",
+                        )}
+                      </p>
+                    </div>
+                    <ShieldCheck size={18} />
+                  </div>
+                  <div className="settings-actions">
+                    <a className="btn btn-outline" href="/api/account/export">
+                      <ArrowDownToLine size={15} />
+                      {t("Exporter mes données", "Export my data")}
+                    </a>
+                    <Button variant="destructive" onClick={() => setModal("delete")}>
+                      {t("Supprimer mon espace", "Delete my workspace")}
+                    </Button>
+                  </div>
+                </section>
+                <div className="card-note">
+                  {t(
+                    "Community : un propriétaire, plusieurs projets. Les invitations, le SSO et la facturation SaaS sont prévus après validation du MVP.",
+                    "Community: one owner, multiple projects. Invitations, SSO and SaaS billing are planned after MVP validation.",
+                  )}
+                </div>
+              </>
+            )}
+            {tab === "usage" && (
+              <>
+                <div className="stats-grid">
+                  <Metric
+                    label={t("Budget mensuel", "Monthly budget")}
+                    value={money(state.usage.budget)}
+                    sub={t("Plafond de votre organisation", "Organization ceiling")}
+                    note={t("Mois calendaire UTC", "UTC calendar month")}
+                    icon={<Wallet size={18} />}
+                  />
+                  <Metric
+                    label={t("Engagé ce mois", "Committed this month")}
+                    value={money(state.usage.amount)}
+                    sub={t("Estimé + réservé + incertain", "Estimated + reserved + uncertain")}
+                    note={t(
+                      "Conservé après suppression d’un projet",
+                      "Preserved after deleting a project",
+                    )}
+                    icon={<Activity size={18} />}
+                  />
+                  <Metric
+                    label={t("Réservé", "Reserved")}
+                    value={money(state.usage.reserved)}
+                    sub={t("Exécutions en attente", "Pending executions")}
+                    note={t("Réservation avant chaque campagne", "Reserved before each campaign")}
+                    icon={<History size={18} />}
+                  />
+                  <Metric
+                    label={t("Coût incertain", "Uncertain cost")}
+                    value={money(state.usage.uncertain)}
+                    sub={t(
+                      "Réservations conservatrices conservées",
+                      "Conservative reservations retained",
+                    )}
+                    note={t(
+                      "À rapprocher des factures fournisseur",
+                      "Reconcile against provider invoices",
+                    )}
+                    icon={<CircleHelp size={18} />}
+                  />
+                </div>
+                <section className="card">
+                  <div className="card-heading">
+                    <div>
+                      <h2>{t("Maîtrisez votre consommation", "Control your spending")}</h2>
+                      <p>
+                        {t(
+                          "Community utilise vos clés. Aucun abonnement n’est facturé par cette application.",
+                          "Community uses your keys. This application does not charge a subscription.",
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <form
+                    className="budget-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const f = new FormData(e.currentTarget);
+                      act(
+                        () => api("budget", "POST", { usd: Number(f.get("usd")) }),
+                        t("Budget enregistré.", "Budget saved."),
+                      );
+                    }}
+                  >
+                    <Field
+                      label={t("Plafond mensuel en USD", "Monthly limit in USD")}
+                      hint={`${t("Plafond serveur", "Server ceiling")} : ${money(state.usage.ceiling)}`}
+                    >
+                      <input
+                        name="usd"
+                        type="number"
+                        min="0.01"
+                        max={state.usage.ceiling / 1e6}
+                        step="0.01"
+                        defaultValue={state.usage.budget / 1e6}
+                        required
+                      />
+                    </Field>
+                    <Button disabled={busy}>{t("Enregistrer le budget", "Save budget")}</Button>
+                  </form>
+                  <div className="card-note">
+                    {t(
+                      "Les estimations reposent sur les tarifs du 31 octobre 2026. Elles ne sont pas des factures et ne limitent pas les appels réalisés en dehors de cette installation. Configurez aussi les limites chez vos fournisseurs.",
+                      "Estimates use prices checked on 31 October 2026. They are not invoices and do not limit calls made outside this installation. Configure provider-side limits as well.",
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
+            <footer className="page-footer">
+              <span>
+                AI Visibility OS <span className="muted">/</span> Community 0.1
+              </span>
+              <a
+                href="https://github.com/DissidentAI/AIVisibilityOS"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("Code source · AGPLv3", "Source code · AGPLv3")}
+                <ExternalLink size={12} />
+              </a>
+            </footer>
+          </main>
+        </div>
+        {modal === "project" && (
+          <ProjectWizard
+            t={t}
+            busy={busy}
+            onClose={() => setModal(null)}
+            onSave={(data) =>
+              act(
+                async () => {
+                  const result = await api<{ id: string }>("projects", "POST", data);
+                  setProjectId(result.id);
+                  setRunId("");
+                  setTab("settings");
+                },
+                t(
+                  "Projet créé. Connectez vos clés API, puis lancez une mesure.",
+                  "Project created. Connect your API keys, then run a measurement.",
+                ),
+              )
+            }
+          />
+        )}
+        {modal === "credential" && (
+          <Modal
+            title={t("Connecter un fournisseur", "Connect a provider")}
+            onClose={() => setModal(null)}
+          >
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                act(
+                  () => api("credentials", "POST", Object.fromEntries(f)),
+                  t(
+                    "Clé chiffrée et enregistrée. Lancez une mesure pour vérifier la connexion.",
+                    "Key encrypted and saved. Run a measurement to verify the connection.",
+                  ),
+                );
+              }}
+            >
+              <Field label={t("Fournisseur", "Provider")}>
+                <select name="provider">
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+              </Field>
+              <Field
+                label={t("Clé API", "API key")}
+                hint={t(
+                  "Cette clé n’est jamais renvoyée au navigateur.",
+                  "This key is never returned to the browser.",
+                )}
+              >
+                <input
+                  name="key"
+                  type="password"
+                  minLength={20}
+                  maxLength={512}
+                  required
+                  autoComplete="off"
+                />
+              </Field>
+              <p className="muted small">
+                {t(
+                  "Vos questions sont envoyées au fournisseur choisi. N’incluez pas d’informations confidentielles sans autorisation.",
+                  "Your questions are sent to the chosen provider. Do not include confidential information without authorization.",
+                )}
+              </p>
+              <Button disabled={busy} className="full">
+                {t("Enregistrer la clé", "Save key")}
+              </Button>
+            </form>
+          </Modal>
+        )}
+        {modal === "run" && project && (
+          <Modal
+            title={t("Nouvelle campagne de mesure", "New measurement campaign")}
+            onClose={() => setModal(null)}
+          >
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                act(
+                  async () => {
+                    const r = await api<{ id: string }>("runs", "POST", {
+                      projectId: project.id,
+                      providers: f.getAll("providers"),
+                      samples: Number(f.get("samples")),
+                    });
+                    setRunId(r.id);
+                    setTab("history");
+                  },
+                  t(
+                    "Campagne mise en file. Les réponses apparaîtront automatiquement.",
+                    "Campaign queued. Responses will appear automatically.",
+                  ),
+                );
+              }}
+            >
+              <p className="muted">
+                {project.name} · {project.queries.length}{" "}
+                {t(
+                  "requêtes. Chaque appel utilise une conversation neuve.",
+                  "queries. Each call uses a fresh conversation.",
+                )}
+              </p>
+              <Field label={t("Fournisseurs à interroger", "Providers to query")}>
+                <div className="checkboxes">
+                  {["openai", "gemini"].map((pr) => (
+                    <label key={pr}>
+                      <input
+                        type="checkbox"
+                        name="providers"
+                        value={pr}
+                        defaultChecked={state.credentials.some((c) => c.provider === pr)}
+                        disabled={!state.credentials.some((c) => c.provider === pr)}
+                      />
+                      {pr === "openai" ? "OpenAI" : "Google Gemini"}
+                      {!state.credentials.some((c) => c.provider === pr) && (
+                        <small>{t("Clé requise", "Key required")}</small>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+              <Field
+                label={t(
+                  "Échantillons par requête et fournisseur",
+                  "Samples per query and provider",
+                )}
+              >
+                <select name="samples" defaultValue="1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="alert info">
+                {t(
+                  "Une réservation prudente sera déduite du budget disponible. Maximum 5 échantillons, 1 200 tokens de sortie par réponse. Les échecs ne sont pas relancés automatiquement.",
+                  "A conservative reservation will be deducted from the available budget. Maximum 5 samples and 1,200 output tokens per response. Failures are not automatically retried.",
+                )}
+              </div>
+              {!state.workerOnline && (
+                <p className="alert error">
+                  {t(
+                    "Le worker est arrêté. Démarrez npm run worker pour traiter la file.",
+                    "The worker is offline. Start npm run worker to process the queue.",
+                  )}
+                </p>
+              )}
+              <Button className="full" disabled={busy || !state.credentials.length}>
+                <Play size={15} />
+                {t("Lancer les appels API", "Start API calls")}
+              </Button>
+            </form>
+          </Modal>
+        )}
+        {(modal === "query" || modal === "brand") && project && (
+          <Modal
+            title={
+              modal === "query"
+                ? t("Ajouter une question", "Add a question")
+                : t("Ajouter un concurrent", "Add a competitor")
+            }
+            onClose={() => setModal(null)}
+          >
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                act(() =>
+                  api(
+                    `projects/${project.id}/${modal === "query" ? "queries" : "brands"}`,
+                    "POST",
+                    Object.fromEntries(f),
+                  ),
+                );
+              }}
+            >
+              {modal === "query" ? (
+                <Field label={t("Question exacte", "Exact question")}>
+                  <textarea name="text" minLength={5} maxLength={1000} required rows={4} />
+                </Field>
+              ) : (
+                <>
+                  <Field label={t("Nom de la marque", "Brand name")}>
+                    <input name="name" minLength={2} maxLength={100} required />
+                  </Field>
+                  <Field label={t("Domaine", "Domain")}>
+                    <input name="domain" placeholder="example.com" required />
+                  </Field>
+                </>
+              )}
+              <Button disabled={busy}>{t("Ajouter", "Add")}</Button>
+            </form>
+          </Modal>
+        )}
+        {modal === "delete" && (
+          <Modal
+            title={t("Supprimer définitivement l’espace", "Permanently delete workspace")}
+            onClose={() => setModal(null)}
+          >
+            <p className="muted">
+              {t(
+                "Tous les projets, réponses, clés et comptes de cet espace seront supprimés. Les sauvegardes relèvent de votre administrateur.",
+                "All projects, responses, keys and accounts in this workspace will be deleted. Backups are managed by your administrator.",
+              )}
+            </p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                setBusy(true);
+                setError("");
+                try {
+                  await api("account", "DELETE", Object.fromEntries(f));
+                  setModal(null);
+                  setState(null);
+                  setSetup(true);
+                } catch (err) {
+                  setError((err as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <Field label={t("Mot de passe actuel", "Current password")}>
+                <input name="password" type="password" required />
+              </Field>
+              <Field label={t("Saisissez DELETE pour confirmer", "Type DELETE to confirm")}>
+                <input name="confirm" pattern="DELETE" required />
+              </Field>
+              <Button variant="destructive" disabled={busy}>
+                {t("Supprimer toutes mes données", "Delete all my data")}
+              </Button>
+            </form>
+          </Modal>
+        )}
+        {response && (
+          <Modal
+            title={t("Preuve de mesure", "Measurement evidence")}
+            onClose={() => setResponse(null)}
+            wide
+          >
+            <div className="evidence-meta">
+              <span className="badge">{response.provider} · API</span>
+              <span className="badge">{status(response.status)}</span>
+              <span className="mono muted">{response.returned_model || response.model}</span>
+            </div>
+            <h3>{response.query_text}</h3>
+            <p className="muted small">
+              {response.finished_at ? date(response.finished_at) : t("En attente", "Pending")} ·{" "}
+              {t("Échantillon", "Sample")} #{response.sample} ·{" "}
+              {response.cost_micros == null
+                ? t("Coût inconnu", "Cost unknown")
+                : money(response.cost_micros)}
+            </p>
+            <div className="answer">
+              {response.answer || t("Aucune réponse disponible.", "No response available.")}
+            </div>
+            {response.error_code && <p className="alert error">{response.error_code}</p>}
+            <h3>{t("Extraits justifiant les mentions", "Evidence supporting mentions")}</h3>
+            {detail?.mentions
+              .filter((m) => m.response_id === response.id)
+              .map((m) => (
+                <blockquote key={m.brand_id}>
+                  <strong>{m.brand_name}</strong>
+                  <p>{m.excerpt}</p>
+                  <small className="muted">
+                    {t(
+                      "Contexte non classifié automatiquement : vérifiez l’extrait.",
+                      "Context is not automatically classified: review the excerpt.",
+                    )}
+                  </small>
+                </blockquote>
+              ))}
+            <details className="methodology">
+              <summary>{t("Paramètres et traçabilité", "Parameters & provenance")}</summary>
+              <pre>
+                {JSON.stringify(
+                  {
+                    requestId: response.request_id,
+                    requestedModel: response.model,
+                    returnedModel: response.returned_model,
+                    channel: response.channel,
+                    inputTokens: response.input_tokens,
+                    outputTokens: response.output_tokens,
+                    parameters: response.parameters,
+                    system: detail?.run.snapshot.system,
+                    configuration: detail?.run.config_hash,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </details>
+          </Modal>
+        )}
+      </div>
+    </ModalError.Provider>
+  );
 }

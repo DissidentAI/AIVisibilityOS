@@ -1,0 +1,161 @@
+"use client";
+import {
+  createContext,
+  useContext,
+  useId,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
+import { X, Search } from "lucide-react";
+import { Button } from "../ui/button";
+export type Translate = (fr: string, en: string) => string;
+export const ModalError = createContext("");
+export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
+  const res = await fetch(`/api/${path}`, {
+    method,
+    headers: data === undefined ? {} : { "Content-Type": "application/json" },
+    body: data === undefined ? undefined : JSON.stringify(data),
+  });
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error ?? "internal_error");
+  return result;
+}
+export function Modal({
+  title,
+  children,
+  onClose,
+  wide = false,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const error = useContext(ModalError);
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className={`modal ${wide ? "modal-wide" : ""}`}
+      onCancel={onClose}
+      onClose={onClose}
+    >
+      <div className="modal-title">
+        <h2>{title}</h2>
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close / Fermer">
+          <X size={18} />
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="alert error">
+          {error}
+        </p>
+      )}
+      {children}
+    </dialog>
+  );
+}
+export function Field({
+  label,
+  children,
+  hint,
+}: {
+  label: string;
+  children: ReactNode;
+  hint?: string;
+}) {
+  const id = useId();
+  const control = isValidElement<{ id?: string; "aria-describedby"?: string }>(children)
+    ? cloneElement(children, { id, "aria-describedby": hint ? `${id}-hint` : undefined })
+    : children;
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      {control}
+      {hint && <small id={`${id}-hint`}>{hint}</small>}
+    </div>
+  );
+}
+export function Empty({
+  icon,
+  title,
+  children,
+}: {
+  icon?: ReactNode;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="empty">
+      <div className="empty-icon">{icon ?? <Search size={24} />}</div>
+      <h3>{title}</h3>
+      <div className="muted">{children}</div>
+    </div>
+  );
+}
+export const money = (n: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(n / 1e6);
+export function friendly(code: string, t: Translate) {
+  const errors: Record<string, string> = {
+    invalid_credentials: t("Adresse ou mot de passe incorrect.", "Incorrect email or password."),
+    invalid_bootstrap_token: t(
+      "Le code d’installation est incorrect. Consultez BOOTSTRAP_TOKEN dans votre fichier .env.",
+      "Incorrect setup code. See BOOTSTRAP_TOKEN in your .env file.",
+    ),
+    registration_closed: t(
+      "Un propriétaire existe déjà. Connectez-vous.",
+      "An owner already exists. Please sign in.",
+    ),
+    invalid_input: t(
+      "Vérifiez les champs : domaines publics, noms distincts et questions de 5 à 1 000 caractères.",
+      "Check the fields: public domains, distinct names and questions of 5–1,000 characters.",
+    ),
+    budget_exceeded: t(
+      "Le budget restant ne couvre pas cette campagne. Réduisez les échantillons ou ajustez votre plafond.",
+      "The remaining budget cannot cover this campaign. Reduce samples or adjust your limit.",
+    ),
+    credentials_required: t(
+      "Connectez une clé pour chaque fournisseur sélectionné.",
+      "Connect a key for each selected provider.",
+    ),
+    campaign_already_running: t(
+      "Une campagne est en cours. Attendez sa fin.",
+      "A campaign is already running. Wait for it to finish.",
+    ),
+    rate_limited: t(
+      "Trop de tentatives. Patientez avant de réessayer.",
+      "Too many attempts. Please wait before trying again.",
+    ),
+    invalid_origin: t(
+      "L’adresse de l’application ne correspond pas à APP_URL dans la configuration.",
+      "This application address does not match APP_URL in the configuration.",
+    ),
+    encryption_not_configured: t(
+      "La clé de chiffrement du serveur doit être configurée.",
+      "The server encryption key must be configured.",
+    ),
+    not_found: t("Cet élément n’est plus disponible.", "This item is no longer available."),
+    unauthenticated: t(
+      "Votre session a expiré. Reconnectez-vous.",
+      "Your session expired. Sign in again.",
+    ),
+  };
+  return (
+    errors[code] ??
+    t(
+      `L’opération n’a pas abouti (${code}). Réessayez ou consultez la documentation.`,
+      `The operation failed (${code}). Try again or check the documentation.`,
+    )
+  );
+}

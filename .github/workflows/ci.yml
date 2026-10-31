@@ -1,0 +1,57 @@
+name: Verify Community MVP
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-bookworm
+        env:
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: visibility_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:test-only@127.0.0.1:5432/visibility_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run setup
+      - run: docker compose build
+      - run: docker compose up -d --wait
+      - run: npx tsx scripts/docker-smoke.ts
+      - name: Verify backup restoration into a separate database
+        run: |
+          bash scripts/backup.sh
+          backup_files=(backups/*.dump)
+          docker compose exec -T db createdb -U visibility visibility_restore
+          docker compose exec -T db pg_restore -U visibility -d visibility_restore --no-owner --exit-on-error < "${backup_files[0]}"
+          restored_count=$(docker compose exec -T db psql -U visibility -d visibility_restore -tAc 'select count(*) from projects;')
+          test "$restored_count" = "1"
+      - if: failure()
+        run: docker compose logs --tail=60 web worker migrate
+      - if: always()
+        run: docker compose down -v
