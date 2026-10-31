@@ -1,0 +1,1 @@
+ALTER TABLE "credentials" RENAME COLUMN "created_at" TO "updated_at";

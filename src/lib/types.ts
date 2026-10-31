@@ -1,0 +1,12 @@
+import type { Brand } from "./measurement";
+import type { Provider } from "./providers";
+export type User = { id: string; org_id: string; email: string };
+export type Query = { id: string; text: string; project_id: string };
+export type Project = { id: string; org_id: string; name: string; domain: string; industry: string; language: string; country: string; created_at: string; brands: Brand[]; queries: Query[] };
+export type Snapshot = { project: Pick<Project, "name" | "domain" | "language" | "country">; brands: Brand[]; queries: Query[]; providers: Provider[]; models: Record<string, string>; samples: number; methodology: string; system: string; parameters: Record<string, unknown>; pricing: Record<string, unknown> };
+export type Run = { id: string; project_id: string; created_at: string; config_hash: string; snapshot: Snapshot; total: number; valid: number; pending: number; failed: number };
+export type ResponseRecord = { id: string; run_id: string; query_text: string; provider: Provider; model: string; returned_model: string | null; channel: string; sample: number; parameters: Record<string, unknown>; status: string; answer: string | null; error_code: string | null; request_id: string | null; input_tokens: number | null; output_tokens: number | null; cost_micros: number | null; started_at: string | null; finished_at: string | null };
+export type Mention = { response_id: string; brand_id: string; brand_name: string; excerpt: string; matched_alias: string; sentiment: string };
+export type Citation = { response_id: string; url: string; domain: string; title: string; provenance: string };
+export type RunDetail = { run: Run; responses: ResponseRecord[]; mentions: Mention[]; citations: Citation[] };
+export type State = { user: User; projects: Project[]; credentials: { provider: Provider; updated_at: string }[]; usage: { amount: number; reserved: number; uncertain: number; budget: number; ceiling: number }; workerOnline: boolean };
