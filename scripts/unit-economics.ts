@@ -1,6 +1,12 @@
+import { SEARCH_PRICING, MODELS } from "../src/lib/providers";
 // Planning assumptions only; no customer data or financial forecast.
 const usdToEur = 0.92; // Scenario assumption, NOT a live exchange rate.
 const pairUsd = (300 * 0.4 + 800 * 1.6 + 300 * 0.1 + 800 * 0.4) / 1e6;
+const searchPairUsd =
+  (SEARCH_PRICING.openai.toolMicros +
+    SEARCH_PRICING.openai.contentTokens * MODELS.openai.input +
+    SEARCH_PRICING.gemini.toolMicros) /
+  1e6;
 const plans = [
   { name: "Starter", price: 39, queries: 10, infrastructure: 3, storage: 0.5, supportMinutes: 5 },
   {
@@ -30,6 +36,11 @@ const rows = plans.map((p) => {
     estimatedCost,
     stressCost,
     contributionBeforeFixedCosts: p.price - estimatedCost,
+    allResponsesWithWebSearch: {
+      apiUsd: apiUsd + p.queries * 3 * 30 * searchPairUsd,
+      estimatedDirectCostEur: estimatedCost + p.queries * 3 * 30 * searchPairUsd * usdToEur,
+      requiresSeparateQuota: true,
+    },
   };
 });
 console.log(
@@ -44,6 +55,8 @@ console.log(
         usdToEur,
         supportHourlyEur: 30,
         pricesExcludeVat: true,
+        searchPairUsd,
+        freeSearchAllowancesAssumed: false,
       },
       scenarios: rows,
     },

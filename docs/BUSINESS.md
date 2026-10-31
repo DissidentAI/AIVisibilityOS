@@ -31,9 +31,9 @@ Fonctions dont la disposition à payer est à tester : hébergement/maintenance,
 
 Calcul : `npm run economics`. Les offres et volumes suivants sont des **scénarios**, hors taxes, sans revenus réels ni promesse de rentabilité.
 
-Hypothèses : 30 jours/mois, 2 fournisseurs, 3 répétitions/jour, 300 tokens d’entrée + 800 de sortie par réponse. Les questions sont un quota **total par abonnement**, pas par projet. 10/50/200 questions donnent 1 800/9 000/36 000 réponses mensuelles. Le MVP ne planifie pas encore ces appels ; ce sont les volumes à budgéter pour une future offre.
+Hypothèses : 30 jours/mois, 2 fournisseurs, 3 répétitions/jour, 300 tokens d’entrée + 800 de sortie par réponse. Les questions sont un quota **total par abonnement**, pas par projet. 10/50/200 questions donnent 1 800/9 000/36 000 réponses mensuelles. La version Community permet désormais de planifier ces appels, sous réserve des plafonds configurés ; ces volumes restent des hypothèses pour une future offre payante.
 
-Tarifs de référence par million de tokens : [OpenAI GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini) 0,40 $ entrée et 1,60 $ sortie ; [Gemini Flash-Lite](https://ai.google.dev/gemini-api/docs/pricing) 0,10 $ / 0,40 $. Une paire de réponses à ces longueurs coûte environ 0,00175 $. Pas de gratuité, cache ou batch supposé. Recherche web exclue et facturée séparément si ajoutée ultérieurement.
+Tarifs de référence par million de tokens : [OpenAI GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini) 0,40 $ entrée et 1,60 $ sortie ; [Gemini Flash-Lite](https://ai.google.dev/gemini-api/docs/pricing) 0,10 $ / 0,40 $. Une paire de réponses à ces longueurs coûte environ 0,00175 $. Pas de gratuité, cache ou batch supposé. Ce premier scénario exclut la recherche web ; le scénario supplémentaire ci-dessous inclut les outils désormais disponibles.
 
 Conversion de scénario : **1 USD = 0,92 EUR**, simple hypothèse de travail, pas un cours actuel. Support valorisé à 30 €/h. Infrastructure et stockage sont des allocations hypothétiques à remplacer par des factures réelles.
 
@@ -54,6 +54,14 @@ Conversion de scénario : **1 USD = 0,92 EUR**, simple hypothèse de travail, pa
 | Coût sous stress : API ×3, support ×2 |    13,96 € |      46,16 € |    155,67 € |
 
 Le reste du prix n’est **pas un bénéfice** : développement, acquisition client, administration, incidents, audit/conformité, taxes, impayés et marge de sécurité ne sont pas inclus. La charge fixe peut rendre l’activité déficitaire avec peu de clients. Une moyenne à 1 200 tokens au lieu de 800 augmente les coûts de sortie de 50 % ; des modèles plus chers ou une recherche web peuvent changer fortement l’équation.
+
+### Impact du mode avec recherche web
+
+Le mode web ajoute, aux tarifs payants et pour une recherche par réponse, 0,01 USD + 8 000 tokens d’entrée OpenAI (0,0032 USD), puis 0,035 USD pour Gemini : **0,0482 USD supplémentaires par paire**. Sources : [OpenAI outils](https://developers.openai.com/api/docs/pricing), [Google grounding](https://ai.google.dev/gemini-api/docs/pricing). Aucun quota gratuit partagé par compte n’est supposé.
+
+Si toutes les réponses du scénario précédent utilisent la recherche web, les API seules atteignent environ **44,955 / 224,775 / 899,10 USD par mois** pour Starter / Professional / Agency. Ces charges sont incompatibles avec les hypothèses de prix sans réduction des volumes ou quotas web spécifiques. `npm run economics` calcule les deux scénarios. Les réservations prudentes de l’application peuvent être supérieures à ces coûts, notamment pour éviter de sous-estimer les tokens de recherche OpenAI.
+
+L’offre commerciale devra distinguer les quotas de réponses avec/sans recherche et la fréquence ; les montants 39/99/249 EUR ne constituent toujours pas une grille tarifaire validée. La Community utilise les clés du propriétaire et les plafonds mensuels configurés, pas un budget gratuit ou illimité fourni par l’application.
 
 Contrôles à maintenir : quota de réponses, bornes de tokens, fréquence maximale, plafond monétaire, réservation transactionnelle, pas de relance payante implicite, arrêt aux limites et visibilité sur les coûts inconnus. Refuser une offre illimitée. Les commissions Hostinger ne figurent dans aucun calcul de viabilité.
 
