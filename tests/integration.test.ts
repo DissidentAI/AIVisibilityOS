@@ -190,6 +190,33 @@ describe("PostgreSQL integration, authorization and durable measurements", () =>
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(await sql`select * from usage_records`).toHaveLength(10);
   });
+  test("a reservation queued last month is charged to the month the API attempt starts", async () => {
+    const a = await prepared();
+    await createRun(a.user, { projectId: a.projectId, providers: ["openai"], samples: 1 });
+    await sql`update usage_records set created_at=now()-interval '40 days'`;
+    expect((await getState(a.user)).usage.reserved).toBeGreaterThan(0);
+    const job = await claimJob();
+    await settleJob(
+      job!,
+      {
+        status: "succeeded",
+        text: "Karburo",
+        model: "fixture",
+        requestId: "fixture",
+        input: 5,
+        output: 5,
+        raw: { synthetic: true },
+        citations: [],
+      },
+      null,
+    );
+    const [record] =
+      await sql`select kind, created_at >= date_trunc('month', now() at time zone 'UTC') at time zone 'UTC' as current_period from usage_records where response_id=${job!.id}`;
+    expect(record.kind).toBe("estimated");
+    expect(record.current_period).toBe(true);
+    const state = await getState(a.user);
+    expect(state.usage.amount - state.usage.reserved).toBe(10);
+  });
   test("multiple workers claim distinct jobs and settlement is idempotent", async () => {
     const a = await prepared();
     await createRun(a.user, { projectId: a.projectId, providers: ["openai"], samples: 1 });

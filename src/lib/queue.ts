@@ -19,9 +19,22 @@ export type Job = {
   snapshot: Snapshot;
 };
 export async function claimJob(): Promise<Job | undefined> {
-  const [job] = await sql<
-    Job[]
-  >`with next_job as (select id from ai_responses where status='queued' order by created_at, id for update skip locked limit 1), claimed as (update ai_responses set status='running', started_at=now() where id in (select id from next_job) returning *) select c.*, r.snapshot from claimed c join measurement_runs r on r.id=c.run_id and r.org_id=c.org_id`;
+  // Pending reservations remain counted across months. Once attempted, charge the
+  // reservation to the UTC month of the attempt, not the month it was queued.
+  const [job] = await sql<Job[]>`
+    with next_job as (
+      select id from ai_responses where status='queued'
+      order by created_at, id for update skip locked limit 1
+    ), claimed as (
+      update ai_responses set status='running', started_at=now()
+      where id in (select id from next_job) returning *
+    ), accounting_period as (
+      update usage_records set created_at=now()
+      where response_id in (select id from claimed) returning id
+    )
+    select c.*, r.snapshot from claimed c
+    join measurement_runs r on r.id=c.run_id and r.org_id=c.org_id
+  `;
   return job;
 }
 export async function settleJob(job: Job, result: ProviderResult | null, errorCode: string | null) {
