@@ -1402,3 +1402,56 @@ blockquote p {
     scroll-behavior: auto !important;
   }
 }
+
+.estimate-box {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  margin: 18px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.estimate-box span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.error-text {
+  color: #dc2626;
+}
+.brand-preview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 14px 0;
+}
+.brand-preview img {
+  max-width: 180px;
+  max-height: 80px;
+  object-fit: contain;
+}
+.evidence-sources {
+  display: grid;
+  gap: 8px;
+  padding: 16px 0;
+  overflow-wrap: anywhere;
+}
+.citation-marker {
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0 3px;
+}
+.search-suggestions {
+  width: 100%;
+  min-height: 150px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  margin: 16px 0;
+}
+.form-panel {
+  padding: 4px 24px 24px;
+}
+.sidebar {
+  overflow-y: auto;
+}

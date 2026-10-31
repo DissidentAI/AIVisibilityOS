@@ -19,11 +19,14 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 - Connecteurs OpenAI Responses et Google Gemini GenerateContent, clés chiffrées côté serveur.
 - Campagnes à 1–5 échantillons par question/fournisseur, file PostgreSQL persistante et worker indépendant.
 - Réponses intégrales, mentions explicites, comparaisons, historique, incertitude statistique et CSV.
-- Budgets mensuels avec réservation atomique, coûts inconnus conservés comme engagements prudents.
+- Budgets mensuels avec réservation atomique, aperçu du coût avant lancement et coûts inconnus conservés comme engagements prudents.
+- Campagnes planifiées toutes les 24 heures ou tous les 7 jours, pause/reprise et journal des échéances.
+- Mode API avec recherche web OpenAI/Gemini, citations cliquables et métadonnées de recherche vérifiables.
+- Rapports PDF en français/anglais avec nom/logo d’agence, comparaison compatible et dossier de preuves JSON figé.
 - Interface responsive, thèmes clair/sombre, export des données personnelles et suppression du compte.
 - Migrations Drizzle, Docker Compose, reverse proxy HTTPS optionnel, tests PostgreSQL et navigateur.
 
-**Pas encore livré :** campagnes récurrentes, PDF/marque blanche, alertes, audit de pages, recommandations GEO, classification automatique du sentiment, comptes d’équipe, Stripe et cloud multi-tenant. Les citations sont normalisées lorsqu’elles existent dans les métadonnées ; la recherche web n’est pas activée dans les deux configurations initiales. Voir [la feuille de route](docs/ROADMAP.md).
+**Pas encore livré :** envoi périodique automatique des rapports, alertes sortantes, audit de pages, recommandations GEO, classification automatique du sentiment, comptes d’équipe, Stripe et cloud multi-tenant. Les rapports sont générés à la demande. Voir [le guide des workflows agences](docs/AGENCY-WORKFLOWS.md) et [la feuille de route](docs/ROADMAP.md).
 
 ## Démarrage local
 

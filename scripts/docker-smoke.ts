@@ -32,9 +32,36 @@ const project = await fetch(`${origin}/api/projects`, {
   }),
 });
 if (!project.ok) throw new Error(`Project creation failed: ${project.status}`);
+const projectInfo = await project.json();
+const estimate = await fetch(`${origin}/api/runs/estimate`, {
+  method: "POST",
+  headers: { origin, cookie, "Content-Type": "application/json" },
+  body: JSON.stringify({
+    projectId: projectInfo.id,
+    providers: ["openai", "gemini"],
+    samples: 1,
+    mode: "web",
+  }),
+});
+if (!estimate.ok) throw new Error("Search estimate unavailable");
+const quote = await estimate.json();
+if (
+  quote.responses !== 2 ||
+  quote.reservedMicros < 50000 ||
+  quote.snapshot.parameters.search !== true
+)
+  throw new Error("Invalid search budget estimate");
+for (const path of [
+  `schedules?project=${projectInfo.id}`,
+  `reports?project=${projectInfo.id}`,
+  "branding",
+]) {
+  const result = await fetch(`${origin}/api/${path}`, { headers: { cookie } });
+  if (!result.ok) throw new Error("Agency tables unavailable");
+}
 const state = await fetch(`${origin}/api/state`, { headers: { cookie } }).then((r) => r.json());
 if (state.projects.length !== 1 || !state.workerOnline)
   throw new Error("Workspace or worker unavailable");
 console.log(
-  "Compose smoke passed: registration, project persistence, authenticated state, worker heartbeat. No provider call made.",
+  "Compose smoke passed: registration, project persistence, authenticated state, search estimate, agency tables, worker heartbeat. No provider call made.",
 );

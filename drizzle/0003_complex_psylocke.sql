@@ -1,0 +1,1 @@
+ALTER TABLE "measurement_schedules" ADD CONSTRAINT "schedule_interval_supported" CHECK ("measurement_schedules"."interval_hours" in (24, 168));

@@ -18,16 +18,40 @@ export const MODELS = {
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
   },
 } as const;
+export const MEASUREMENT_MODES = ["baseline", "web"] as const;
+export type MeasurementMode = (typeof MEASUREMENT_MODES)[number];
+// Full paid rates: provider free allowances cannot be known across installations.
+export const SEARCH_PRICING = {
+  openai: { toolMicros: 10_000, contentTokens: 8_000, maxCalls: 1 },
+  gemini: { toolMicros: 35_000, contentTokens: 0, maxCalls: 1 },
+} as const;
 export const MAX_OUTPUT = 1200;
+export type Grounding = {
+  searched: boolean;
+  toolCalls: number;
+  queries: string[];
+  searchEntryHtml: string | null;
+  links: { end: number; url: string; title: string }[];
+};
 export const PRICE_DATE = "2026-10-31";
 export function instructions(language: string, country: string) {
   return `Answer the user's question in ${language === "fr" ? "French" : "English"}. The user is interested in the market ${country}. Be factual and indicate uncertainty. Do not invent sources. This is a fresh conversation.`;
 }
-export function reserveMicros(provider: Provider, query: string, system: string) {
+export function reserveMicros(
+  provider: Provider,
+  query: string,
+  system: string,
+  mode: MeasurementMode = "baseline",
+) {
   // UTF-8 byte count plus framing is a conservative text-token upper estimate.
   return Math.ceil(
     (Buffer.byteLength(query + system, "utf8") + 256) * MODELS[provider].input +
-      MAX_OUTPUT * MODELS[provider].output,
+      MAX_OUTPUT * MODELS[provider].output +
+      (mode === "web"
+        ? SEARCH_PRICING[provider].toolMicros +
+          // Conservatively cover reported usage plus a separate fixed search-content block.
+          2 * SEARCH_PRICING[provider].contentTokens * MODELS[provider].input
+        : 0),
   );
 }
 export type ProviderResult = {
@@ -38,6 +62,7 @@ export type ProviderResult = {
   input: number | null;
   output: number | null;
   raw: unknown;
+  grounding?: Grounding;
   citations: { url: string; domain: string; title: string; provenance: string }[];
 };
 const count = z.number().int().nonnegative();
@@ -50,6 +75,10 @@ const openaiSchema = z
       z
         .object({
           type: z.string(),
+          action: z
+            .object({ query: z.string().optional(), queries: z.array(z.string()).optional() })
+            .passthrough()
+            .optional(),
           content: z
             .array(
               z
@@ -63,6 +92,7 @@ const openaiSchema = z
                           type: z.string(),
                           url: z.string().optional(),
                           title: z.string().optional(),
+                          end_index: count.optional(),
                         })
                         .passthrough(),
                     )
@@ -97,6 +127,25 @@ const geminiSchema = z
               .optional(),
             groundingMetadata: z
               .object({
+                webSearchQueries: z.array(z.string()).optional(),
+                searchEntryPoint: z
+                  .object({ renderedContent: z.string().max(200_000).optional() })
+                  .optional(),
+                groundingSupports: z
+                  .array(
+                    z.object({
+                      segment: z
+                        .object({
+                          partIndex: count.optional(),
+                          startIndex: count.optional(),
+                          endIndex: count.optional(),
+                          text: z.string().optional(),
+                        })
+                        .optional(),
+                      groundingChunkIndices: z.array(count).optional(),
+                    }),
+                  )
+                  .optional(),
                 groundingChunks: z
                   .array(
                     z.object({
@@ -140,6 +189,31 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
       input: d.usage?.input_tokens ?? null,
       output: d.usage?.output_tokens ?? null,
       raw: data,
+      grounding: {
+        searched: d.output.some((o) => o.type === "web_search_call"),
+        toolCalls: d.output.filter((o) => o.type === "web_search_call").length,
+        queries: [
+          ...new Set(
+            d.output
+              .filter((o) => o.type === "web_search_call")
+              .flatMap((o) => o.action?.queries ?? (o.action?.query ? [o.action.query] : [])),
+          ),
+        ],
+        searchEntryHtml: null,
+        links: parts.flatMap((p, i) =>
+          (p.annotations ?? []).flatMap((a) => {
+            const url = a.url && safePublicUrl(a.url);
+            const end = a.end_index;
+            if (a.type !== "url_citation" || !url || end == null || end > (p.text ?? "").length)
+              return [];
+            const offset = parts
+              .slice(0, i)
+              .filter((x) => x.type === "output_text")
+              .reduce((sum, x) => sum + (x.text ?? "").length + 1, 0);
+            return [{ end: offset + end, url: url.href, title: a.title || url.hostname }];
+          }),
+        ),
+      },
       citations: parts.flatMap((p) =>
         (p.annotations ?? []).flatMap((a) =>
           a.type === "url_citation" && a.url
@@ -155,6 +229,8 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
     .filter((p) => !p.thought)
     .map((p) => p.text ?? "")
     .join("\n");
+  const grounding = c?.groundingMetadata;
+  const visibleParts = (c?.content?.parts ?? []).filter((p) => !p.thought);
   return {
     status: c?.finishReason === "STOP" && text.trim() ? "succeeded" : "invalid",
     text,
@@ -166,6 +242,28 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
         ? null
         : d.usageMetadata.candidatesTokenCount + (d.usageMetadata.thoughtsTokenCount ?? 0),
     raw: data,
+    grounding: {
+      searched: !!(grounding?.webSearchQueries?.length || grounding?.groundingChunks?.length),
+      toolCalls: grounding?.webSearchQueries?.length || grounding?.groundingChunks?.length ? 1 : 0,
+      queries: grounding?.webSearchQueries ?? [],
+      searchEntryHtml: grounding?.searchEntryPoint?.renderedContent ?? null,
+      links: (grounding?.groundingSupports ?? []).flatMap((s) => {
+        const part = c?.content?.parts?.[s.segment?.partIndex ?? 0];
+        if (!part || part.thought || s.segment?.endIndex == null) return [];
+        // Gemini segment offsets are UTF-8 bytes within the referenced part.
+        const bytes = Buffer.from(part.text ?? "", "utf8");
+        if (s.segment.endIndex > bytes.length) return [];
+        const offset = visibleParts
+          .slice(0, visibleParts.indexOf(part))
+          .reduce((sum, p) => sum + (p.text ?? "").length + 1, 0);
+        const end = offset + bytes.subarray(0, s.segment.endIndex).toString("utf8").length;
+        return (s.groundingChunkIndices ?? []).flatMap((i) => {
+          const web = grounding?.groundingChunks?.[i]?.web;
+          const url = web && safePublicUrl(web.uri);
+          return url ? [{ end, url: url.href, title: web?.title || url.hostname }] : [];
+        });
+      }),
+    },
     citations: (c?.groundingMetadata?.groundingChunks ?? []).flatMap((g) =>
       g.web ? citation(g.web.uri, g.web.title ?? "", "gemini_grounding_metadata") : [],
     ),
@@ -181,6 +279,7 @@ export async function callProvider(
   key: string,
   query: string,
   system: string,
+  mode: MeasurementMode = "baseline",
 ): Promise<ProviderResult> {
   const openai = provider === "openai";
   const body = openai
@@ -191,8 +290,16 @@ export async function callProvider(
         max_output_tokens: MAX_OUTPUT,
         temperature: 0.7,
         store: false,
+        ...(mode === "web"
+          ? {
+              tools: [{ type: "web_search", search_context_size: "low" }],
+              max_tool_calls: 1,
+              tool_choice: "required",
+            }
+          : {}),
       }
     : {
+        ...(mode === "web" ? { tools: [{ google_search: {} }] } : {}),
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: "user", parts: [{ text: query }] }],
         generationConfig: {

@@ -15,6 +15,20 @@
       "when": 1793480170374,
       "tag": "0001_condemned_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793484434080,
+      "tag": "0002_many_ben_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793485133230,
+      "tag": "0003_complex_psylocke",
+      "breakpoints": true
     }
   ]
 }

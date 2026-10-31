@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { sql } from "./db/client";
 import { maintenance, workOnce } from "./lib/queue";
+import { dispatchSchedule } from "./lib/schedules";
 const id = randomUUID();
 let stopping = false;
 process.on("SIGTERM", () => {
@@ -27,6 +28,7 @@ try {
         await maintenance();
         lastMaintenance = Date.now();
       }
+      await dispatchSchedule();
       if (!(await workOnce())) await setTimeout(2000);
       else await setTimeout(1000); // single worker <= 60 requests/minute, no implicit paid retries
     } catch {

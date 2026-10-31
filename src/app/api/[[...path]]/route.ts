@@ -6,6 +6,7 @@ import { assertOrigin, digest, verifyPassword } from "@/lib/security";
 import {
   createProject,
   createRun,
+  estimateRun,
   getState,
   listRuns,
   getRun,
@@ -15,11 +16,14 @@ import {
   uuidSchema,
   brandSchema,
 } from "@/lib/service";
-import { toCsv, METHODOLOGY } from "@/lib/measurement";
+import { toCsv } from "@/lib/measurement";
+import { saveSchedule, listSchedules, setScheduleEnabled } from "@/lib/schedules";
+import { getBranding, saveBranding, createReport, listReports, getReport } from "@/lib/reports";
+import { renderReport } from "@/lib/report-pdf";
 import { PROVIDERS } from "@/lib/providers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-async function body(request: Request) {
+async function body(request: Request, maxBytes = 100_000) {
   if (!request.headers.get("content-type")?.startsWith("application/json"))
     throw new AppError("json_required", 415);
   const reader = request.body?.getReader();
@@ -30,7 +34,7 @@ async function body(request: Request) {
     const { done, value } = await reader.read();
     if (done) break;
     n += value.length;
-    if (n > 100_000) {
+    if (n > maxBytes) {
       await reader.cancel();
       throw new AppError("body_too_large", 413);
     }
@@ -76,6 +80,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
     if (path[0] === "projects" && path[1] && path.length === 2 && method === "DELETE") {
       await ownedProject(user, path[1]);
       await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(824762)`;
         await tx`select id from projects where id=${path[1]} and org_id=${user.org_id} for update`;
         const [pending] =
           await tx`select count(*)::int as n from ai_responses a join measurement_runs r on r.id=a.run_id where r.project_id=${path[1]} and a.org_id=${user.org_id} and a.status in ('queued','running')`;
@@ -94,6 +99,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       await ownedProject(user, path[1]);
       const data = await body(request);
       await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(824762)`;
         await tx`select id from projects where id=${path[1]} and org_id=${user.org_id} for update`;
         if (path[2] === "queries") {
           const p = z.object({ text: z.string().trim().min(5).max(1000) }).parse(data);
@@ -137,6 +143,56 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       await sql`delete from credentials where org_id=${user.org_id} and provider=${path[1]}`;
       return json({ ok: true });
     }
+    if (route === "runs/estimate" && method === "POST")
+      return json(await estimateRun(user, await body(request)));
+    if (route === "schedules" && method === "GET")
+      return json(await listSchedules(user, url.searchParams.get("project") ?? ""));
+    if (route === "schedules" && method === "POST")
+      return json(await saveSchedule(user, await body(request)), 201);
+    if (path[0] === "schedules" && path[1] && path.length === 2 && method === "POST") {
+      await setScheduleEnabled(user, path[1], await body(request));
+      return json({ ok: true });
+    }
+    if (route === "branding" && method === "GET") return json(await getBranding(user));
+    if (route === "branding" && method === "POST") {
+      await saveBranding(user, await body(request, 360_000));
+      return json({ ok: true });
+    }
+    if (route === "reports" && method === "GET")
+      return json(await listReports(user, url.searchParams.get("project") ?? ""));
+    if (route === "reports" && method === "POST") {
+      await rateLimit(`report:${user.id}`, 20, 3600);
+      return json(await createReport(user, await body(request)), 201);
+    }
+    if (
+      path[0] === "reports" &&
+      path[1] &&
+      path.length === 3 &&
+      ["pdf", "data"].includes(path[2]) &&
+      method === "GET"
+    ) {
+      const report = await getReport(user, path[1]);
+      if (path[2] === "data")
+        return json(report.payload, 200, {
+          "Content-Disposition": `attachment; filename="evidence-${report.id}.json"`,
+        });
+      await rateLimit(`pdf:${user.id}`, 30, 3600);
+      const pdf = await renderReport(report.payload, report.id);
+      return new Response(new Uint8Array(pdf), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Cache-Control": "no-store",
+          "Content-Disposition": `attachment; filename="report-${report.id}.pdf"`,
+        },
+      });
+    }
+    if (path[0] === "reports" && path[1] && path.length === 2 && method === "DELETE") {
+      uuidSchema.parse(path[1]);
+      const rows =
+        await sql`delete from reports where id=${path[1]} and org_id=${user.org_id} returning id`;
+      if (!rows.length) throw new AppError("not_found", 404);
+      return json({ ok: true });
+    }
     if (route === "runs" && method === "POST") {
       await rateLimit(`campaign:${user.id}`, 10, 3600);
       return json(await createRun(user, await body(request)), 201);
@@ -155,7 +211,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           ...r,
           campaign_date: result.run.created_at,
           config_hash: result.run.config_hash,
-          methodology: METHODOLOGY,
+          methodology: result.run.snapshot.methodology,
           language: result.run.snapshot.project.language,
           country_context: result.run.snapshot.project.country,
           country_mode: "prompt_context_only",
@@ -187,9 +243,28 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       const mentions = await sql`select * from brand_mentions where org_id=${user.org_id}`;
       const citations = await sql`select * from citations where org_id=${user.org_id}`;
       const usage = await sql`select * from usage_records where org_id=${user.org_id}`;
-      return json({ ...state, runs, responses, mentions, citations, usageRecords: usage }, 200, {
-        "Content-Disposition": 'attachment; filename="visibility-personal-data.json"',
-      });
+      const schedules = await sql`select * from measurement_schedules where org_id=${user.org_id}`;
+      const scheduleEvents = await sql`select * from schedule_events where org_id=${user.org_id}`;
+      const reports = await sql`select * from reports where org_id=${user.org_id}`;
+      const branding = await getBranding(user);
+      return json(
+        {
+          ...state,
+          runs,
+          responses,
+          mentions,
+          citations,
+          usageRecords: usage,
+          schedules,
+          scheduleEvents,
+          reports,
+          branding,
+        },
+        200,
+        {
+          "Content-Disposition": 'attachment; filename="visibility-personal-data.json"',
+        },
+      );
     }
     if (route === "account" && method === "DELETE") {
       const p = z
@@ -200,6 +275,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       if (!(await verifyPassword(p.password, u.password_hash)))
         throw new AppError("invalid_credentials", 403);
       await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(824762)`;
         await tx`select id from organizations where id=${user.org_id} for update`;
         const [pending] =
           await tx`select count(*)::int as n from ai_responses where org_id=${user.org_id} and status in ('queued','running')`;

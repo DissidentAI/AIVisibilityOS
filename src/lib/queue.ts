@@ -3,6 +3,7 @@ import { decryptSecret } from "./security";
 import {
   callProvider,
   MODELS,
+  SEARCH_PRICING,
   ProviderError,
   type Provider,
   type ProviderResult,
@@ -43,14 +44,24 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
       await tx`select status from ai_responses where id=${job.id} and org_id=${job.org_id} for update`;
     if (!existing || existing.status !== "running") return;
     const pricing = job.snapshot.pricing.models as typeof MODELS;
+    const searchPricing = (job.snapshot.pricing.search ?? SEARCH_PRICING) as typeof SEARCH_PRICING;
+    const searchCost =
+      job.snapshot.parameters.search === true && result?.grounding
+        ? result.grounding.toolCalls *
+          (searchPricing[job.provider].toolMicros +
+            searchPricing[job.provider].contentTokens * pricing[job.provider].input)
+        : 0;
     const cost =
-      result?.input != null && result?.output != null
+      result?.input != null &&
+      result?.output != null &&
+      (job.snapshot.parameters.search !== true || result.grounding != null)
         ? Math.ceil(
             result.input * pricing[job.provider].input +
-              result.output * pricing[job.provider].output,
+              result.output * pricing[job.provider].output +
+              searchCost,
           )
         : null;
-    await tx`update ai_responses set status=${result?.status ?? "failed"}, answer=${result?.text ?? null}, returned_model=${result?.model ?? null}, raw=${result ? JSON.stringify(result.raw) : null}::jsonb, request_id=${result?.requestId ?? null}, input_tokens=${result?.input ?? null}, output_tokens=${result?.output ?? null}, cost_micros=${cost}, error_code=${errorCode ?? (result?.status === "invalid" ? "incomplete_or_refused" : null)}, finished_at=now() where id=${job.id} and org_id=${job.org_id}`;
+    await tx`update ai_responses set status=${result?.status ?? "failed"}, answer=${result?.text ?? null}, returned_model=${result?.model ?? null}, raw=${result ? JSON.stringify(result.raw) : null}::jsonb, grounding=${result?.grounding ? JSON.stringify(result.grounding) : null}::jsonb, request_id=${result?.requestId ?? null}, input_tokens=${result?.input ?? null}, output_tokens=${result?.output ?? null}, cost_micros=${cost}, error_code=${errorCode ?? (result?.status === "invalid" ? "incomplete_or_refused" : null)}, finished_at=now() where id=${job.id} and org_id=${job.org_id}`;
     if (cost != null)
       await tx`update usage_records set amount_micros=${cost}, kind='estimated' where response_id=${job.id} and org_id=${job.org_id}`;
     else
@@ -75,7 +86,13 @@ export async function workOnce(adapter: typeof callProvider = callProvider) {
     if (job.model !== MODELS[job.provider].id)
       throw new ProviderError("model_configuration_changed");
     const key = decryptSecret(credential.encrypted_key, `${job.org_id}:${job.provider}`);
-    result = await adapter(job.provider, key, job.query_text, job.snapshot.system);
+    result = await adapter(
+      job.provider,
+      key,
+      job.query_text,
+      job.snapshot.system,
+      job.snapshot.parameters.search === true ? "web" : "baseline",
+    );
   } catch (e) {
     error = e instanceof ProviderError ? e.code : "execution_failed";
   }
@@ -93,6 +110,8 @@ export async function maintenance() {
     const days = Number(process.env.RETENTION_DAYS ?? 365);
     if (!Number.isInteger(days) || days < 1 || days > 3650)
       throw new Error("invalid_retention_days");
+    await tx`delete from reports where created_at < now() - ${days} * interval '1 day'`;
+    await tx`delete from schedule_events where created_at < now() - ${days} * interval '1 day'`;
     // Retain usage accounting separately; queued/running jobs are never purged.
     await tx`delete from measurement_runs r where r.created_at < now() - ${days} * interval '1 day' and not exists(select 1 from ai_responses a where a.run_id=r.id and a.status in ('queued','running'))`;
     await tx`delete from usage_records where created_at < now() - ${Math.max(62, days)} * interval '1 day' and kind <> 'reserved'`;

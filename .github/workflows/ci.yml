@@ -1,4 +1,4 @@
-name: Verify Community MVP
+name: Verify Community workflows
 on: [push, pull_request]
 permissions:
   contents: read
@@ -43,6 +43,8 @@ jobs:
       - run: docker compose build
       - run: docker compose up -d --wait
       - run: npx tsx scripts/docker-smoke.ts
+      - run: docker compose exec -T web test -f node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff
+      - run: docker compose exec -T web test -f node_modules/@fontsource/noto-sans/LICENSE
       - name: Verify backup restoration into a separate database
         run: |
           bash scripts/backup.sh

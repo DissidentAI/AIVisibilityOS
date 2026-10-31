@@ -5,6 +5,7 @@ import {
   reserveMicros,
   instructions,
   MAX_OUTPUT,
+  SEARCH_PRICING,
 } from "../src/lib/providers";
 // Synthetic fixtures only. Never seeded into an application database.
 export const openaiFixture = {
@@ -120,5 +121,81 @@ describe("official API normalization with synthetic fixtures", () => {
   });
   test("reservation covers byte-based input upper estimate and bounded output", () => {
     expect(reserveMicros("openai", "été?", "fr")).toBeGreaterThan(MAX_OUTPUT * 1.6);
+  });
+  test("web search is explicit, bounded and absent from baseline payloads", async () => {
+    const mock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(openaiFixture)));
+    await callProvider("openai", "fixture-key", "Question?", "French", "web");
+    expect(JSON.parse(mock.mock.calls[0][1]!.body as string)).toMatchObject({
+      tools: [{ type: "web_search", search_context_size: "low" }],
+      max_tool_calls: 1,
+      tool_choice: "required",
+    });
+    mock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          candidates: [{ finishReason: "STOP", content: { parts: [{ text: "Fixture" }] } }],
+        }),
+      ),
+    );
+    await callProvider("gemini", "fixture-key", "Question?", "French", "web");
+    expect(JSON.parse(mock.mock.calls[1][1]!.body as string).tools).toEqual([
+      { google_search: {} },
+    ]);
+    mock.mockResolvedValue(new Response(JSON.stringify(openaiFixture)));
+    await callProvider("openai", "fixture-key", "Question?", "French");
+    expect(JSON.parse(mock.mock.calls[2][1]!.body as string).tools).toBeUndefined();
+  });
+  test("grounded budgets include full paid search fees and conservative input allowance", () => {
+    expect(reserveMicros("gemini", "Q?", "fr", "web") - reserveMicros("gemini", "Q?", "fr")).toBe(
+      SEARCH_PRICING.gemini.toolMicros,
+    );
+    expect(reserveMicros("openai", "Q?", "fr", "web") - reserveMicros("openai", "Q?", "fr")).toBe(
+      16_400,
+    );
+  });
+  test("OpenAI structured citations retain their exact offsets and actual search invocation", () => {
+    const fixture = structuredClone(openaiFixture);
+    (fixture.output[0].content[0].annotations[0] as Record<string, unknown>).end_index = 7;
+    const r = parseResponse("openai", {
+      ...fixture,
+      output: [{ type: "web_search_call", status: "completed" }, ...fixture.output],
+    });
+    expect(r.grounding).toMatchObject({
+      searched: true,
+      toolCalls: 1,
+      links: [{ end: 7, url: "https://example.com/fixture" }],
+    });
+  });
+  test("Gemini preserves search evidence and converts UTF-8 offsets without inventing citations", () => {
+    const r = parseResponse("gemini", {
+      candidates: [
+        {
+          finishReason: "STOP",
+          content: { parts: [{ text: "Été Karburo." }] },
+          groundingMetadata: {
+            webSearchQueries: ["fixture query"],
+            searchEntryPoint: { renderedContent: "<div>Google fixture</div>" },
+            groundingChunks: [
+              { web: { uri: "https://example.com/source" } },
+              { web: { uri: "http://127.0.0.1/secret" } },
+            ],
+            groundingSupports: [
+              {
+                segment: { endIndex: Buffer.byteLength("Été Karburo.") },
+                groundingChunkIndices: [0, 1, 99],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(r.grounding?.links).toEqual([
+      { end: "Été Karburo.".length, url: "https://example.com/source", title: "example.com" },
+    ]);
+    expect(r.grounding?.toolCalls).toBe(1);
+    expect(r.grounding?.searchEntryHtml).toContain("Google fixture");
+    expect(r.citations).toHaveLength(1);
   });
 });

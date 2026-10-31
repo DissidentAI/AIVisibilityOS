@@ -31,3 +31,11 @@ Retention defaults to 365 days for completed campaigns. Usage records persist at
 Use GitHub **Security → Report a vulnerability** if private vulnerability reporting has been enabled on the repository. If it is unavailable, contact the repository owner privately through an existing verified channel. Do not post keys, personal data or exploit details in a public issue. No unverified security email address is supplied.
 
 Only the current release branch is supported during the MVP stage. Pin dependencies, run `npm audit` and review official API/pricing changes before upgrading production. See `docs/VALIDATION.md` for the evidence actually collected.
+
+## Agency workflows (0.2)
+
+Scheduling shares the transactional spending gate with manual campaigns. One due occurrence creates at most one run, even across worker replicas. Schedule configuration is frozen and scoped to its organization/project. Pause leaves previously queued work intact. Resume does not replay overdue calls.
+
+Reports and evidence bundles require authentication and organization ownership. No public share link is created. Agency logos accept only bounded PNG/JPEG uploads, decode with a pixel limit, and are normalized through Sharp; no remote logo fetch or SVG interpretation. PDF content uses plain text rather than HTML. Google Search suggestions use an opaque-origin sandboxed iframe without scripts, forms, top navigation or parent access; provider HTML is never injected into the application DOM. Report exports and schedule data are included in personal exports and deletion/retention policies.
+
+These additions do not enable public signups or collaborator access. Review the documented provider/model retirement and conservative cost conventions before enabling paid scheduled calls.

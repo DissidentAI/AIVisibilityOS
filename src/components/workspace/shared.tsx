@@ -108,6 +108,42 @@ export const money = (n: number) =>
   }).format(n / 1e6);
 export function friendly(code: string, t: Translate) {
   const errors: Record<string, string> = {
+    invalid_schedule_date: t(
+      "Choisissez une date future dans les 366 prochains jours.",
+      "Choose a future date within the next 366 days.",
+    ),
+    configuration_changed: t(
+      "La configuration a changé. Fermez puis rouvrez ce formulaire pour actualiser l’estimation.",
+      "Configuration changed. Close and reopen this form to refresh the estimate.",
+    ),
+    report_campaign_pending: t(
+      "Attendez la fin de la campagne pour figer le rapport.",
+      "Wait for the campaign to finish before freezing the report.",
+    ),
+    report_no_valid_responses: t(
+      "Une réponse valide est nécessaire pour créer un rapport.",
+      "At least one valid response is required to create a report.",
+    ),
+    report_not_comparable: t(
+      "Ces campagnes ne sont pas comparables : vérifiez la configuration, les modèles retournés et les réponses valides.",
+      "These campaigns cannot be compared: check configuration, returned models and valid responses.",
+    ),
+    invalid_logo: t(
+      "Utilisez un PNG ou JPEG valide, de 250 Ko et 1 mégapixel maximum.",
+      "Use a valid PNG or JPEG up to 250 KB and 1 megapixel.",
+    ),
+    report_limit: t(
+      "La limite de 200 rapports est atteinte. Exportez puis retirez des rapports anciens.",
+      "The 200-report limit has been reached. Export and remove older reports.",
+    ),
+    model_configuration_changed: t(
+      "Le catalogue de modèles a changé. Enregistrez à nouveau le planning.",
+      "The model catalog changed. Save the schedule again.",
+    ),
+    model_retired: t(
+      "Le modèle configuré a été retiré. Une mise à jour du connecteur est nécessaire.",
+      "The configured model has retired. The connector needs an update.",
+    ),
     invalid_credentials: t("Adresse ou mot de passe incorrect.", "Incorrect email or password."),
     invalid_bootstrap_token: t(
       "Le code d’installation est incorrect. Consultez BOOTSTRAP_TOKEN dans votre fichier .env.",

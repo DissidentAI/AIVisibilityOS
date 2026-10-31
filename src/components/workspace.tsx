@@ -28,6 +28,8 @@ import {
   ExternalLink,
   KeyRound,
   History,
+  CalendarClock,
+  FileText,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { mentionRate } from "@/lib/measurement";
@@ -44,7 +46,20 @@ import {
 } from "./workspace/shared";
 import { Metric, Comparison, HistoryChart } from "./workspace/analytics";
 import { ProjectWizard } from "./workspace/project-wizard";
-type Tab = "overview" | "queries" | "competitors" | "sources" | "history" | "settings" | "usage";
+import { CampaignDialog } from "./workspace/campaign-dialog";
+import { SchedulesPanel } from "./workspace/schedules-panel";
+import { ReportsPanel } from "./workspace/reports-panel";
+import { GroundedAnswer } from "./workspace/grounded-answer";
+type Tab =
+  | "overview"
+  | "queries"
+  | "competitors"
+  | "sources"
+  | "history"
+  | "settings"
+  | "usage"
+  | "schedules"
+  | "reports";
 export function Workspace() {
   const [lang, setLang] = useState<"fr" | "en">("fr"),
     [dark, setDark] = useState(false);
@@ -135,7 +150,7 @@ export function Workspace() {
     try {
       await action();
       await refresh();
-      await refreshRuns();
+      // Selected run/project changes trigger their own effect; a stale callback here could reselect the previous campaign.
       setModal(null);
       if (message) setNotice(message);
     } catch (e) {
@@ -150,6 +165,8 @@ export function Workspace() {
     { id: "competitors", title: t("Concurrents", "Competitors"), icon: Users },
     { id: "sources", title: t("Sources & citations", "Sources & citations"), icon: Globe2 },
     { id: "history", title: t("Historique & exports", "History & exports"), icon: History },
+    { id: "schedules", title: t("Planification", "Scheduling"), icon: CalendarClock },
+    { id: "reports", title: t("Rapports clients", "Client reports"), icon: FileText },
     { id: "settings", title: t("Paramètres", "Settings"), icon: Settings2 },
     { id: "usage", title: t("Consommation", "Usage & budget"), icon: Wallet },
   ] as const;
@@ -332,7 +349,7 @@ export function Workspace() {
             {nav.map((item, i) => (
               <button
                 key={item.id}
-                className={`nav-item ${tab === item.id ? "active" : ""} ${i === 5 ? "nav-separated" : ""}`}
+                className={`nav-item ${tab === item.id ? "active" : ""} ${item.id === "settings" ? "nav-separated" : ""}`}
                 onClick={() => {
                   setTab(item.id);
                   setMobile(false);
@@ -541,7 +558,9 @@ export function Workspace() {
                       )}
                       {runs.map((r) => (
                         <option key={r.id} value={r.id}>
-                          {date(r.created_at)} · {r.valid}/{r.total}
+                          {date(r.created_at)} ·{" "}
+                          {r.snapshot.parameters.search ? t("Web", "Web") : t("Sans web", "No web")}{" "}
+                          · {r.valid}/{r.total}
                         </option>
                       ))}
                     </select>
@@ -553,6 +572,30 @@ export function Workspace() {
                     </a>
                   )}
                 </div>
+                {tab === "schedules" && (
+                  <SchedulesPanel
+                    key={project.id}
+                    project={project}
+                    state={state}
+                    t={t}
+                    date={date}
+                    onRun={(id) => {
+                      setRunId(id);
+                      setTab("history");
+                    }}
+                  />
+                )}
+                {tab === "reports" && (
+                  <ReportsPanel
+                    key={project.id}
+                    project={project}
+                    detail={detail}
+                    runs={runs}
+                    t={t}
+                    locale={lang}
+                    date={date}
+                  />
+                )}
                 {tab === "overview" && (
                   <>
                     <div className="stats-grid">
@@ -927,8 +970,8 @@ export function Workspace() {
                         title={t("Aucune citation vérifiable", "No verifiable citations")}
                       >
                         {t(
-                          "Les connecteurs actuels n’activent pas de recherche web. Les liens écrits dans le texte des réponses ne sont pas considérés comme des citations vérifiées.",
-                          "The current connectors do not enable web search. Links written in response text are not treated as verified citations.",
+                          "Activez le mode avec recherche web pour collecter les citations disponibles. Les liens écrits librement dans les réponses ne sont pas considérés comme des citations vérifiées.",
+                          "Enable web search mode to collect available citations. Links written freely in response text are not treated as verified citations.",
                         )}
                       </Empty>
                     )}
@@ -1192,7 +1235,7 @@ export function Workspace() {
             )}
             <footer className="page-footer">
               <span>
-                AI Visibility OS <span className="muted">/</span> Community 0.1
+                AI Visibility OS <span className="muted">/</span> Community 0.2
               </span>
               <a
                 href="https://github.com/DissidentAI/AIVisibilityOS"
@@ -1279,91 +1322,26 @@ export function Workspace() {
           </Modal>
         )}
         {modal === "run" && project && (
-          <Modal
-            title={t("Nouvelle campagne de mesure", "New measurement campaign")}
+          <CampaignDialog
+            project={project}
+            state={state}
+            t={t}
+            busy={busy}
             onClose={() => setModal(null)}
-          >
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const f = new FormData(e.currentTarget);
-                act(
-                  async () => {
-                    const r = await api<{ id: string }>("runs", "POST", {
-                      projectId: project.id,
-                      providers: f.getAll("providers"),
-                      samples: Number(f.get("samples")),
-                    });
-                    setRunId(r.id);
-                    setTab("history");
-                  },
-                  t(
-                    "Campagne mise en file. Les réponses apparaîtront automatiquement.",
-                    "Campaign queued. Responses will appear automatically.",
-                  ),
-                );
-              }}
-            >
-              <p className="muted">
-                {project.name} · {project.queries.length}{" "}
-                {t(
-                  "requêtes. Chaque appel utilise une conversation neuve.",
-                  "queries. Each call uses a fresh conversation.",
-                )}
-              </p>
-              <Field label={t("Fournisseurs à interroger", "Providers to query")}>
-                <div className="checkboxes">
-                  {["openai", "gemini"].map((pr) => (
-                    <label key={pr}>
-                      <input
-                        type="checkbox"
-                        name="providers"
-                        value={pr}
-                        defaultChecked={state.credentials.some((c) => c.provider === pr)}
-                        disabled={!state.credentials.some((c) => c.provider === pr)}
-                      />
-                      {pr === "openai" ? "OpenAI" : "Google Gemini"}
-                      {!state.credentials.some((c) => c.provider === pr) && (
-                        <small>{t("Clé requise", "Key required")}</small>
-                      )}
-                    </label>
-                  ))}
-                </div>
-              </Field>
-              <Field
-                label={t(
-                  "Échantillons par requête et fournisseur",
-                  "Samples per query and provider",
-                )}
-              >
-                <select name="samples" defaultValue="1">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <div className="alert info">
-                {t(
-                  "Une réservation prudente sera déduite du budget disponible. Maximum 5 échantillons, 1 200 tokens de sortie par réponse. Les échecs ne sont pas relancés automatiquement.",
-                  "A conservative reservation will be deducted from the available budget. Maximum 5 samples and 1,200 output tokens per response. Failures are not automatically retried.",
-                )}
-              </div>
-              {!state.workerOnline && (
-                <p className="alert error">
-                  {t(
-                    "Le worker est arrêté. Démarrez npm run worker pour traiter la file.",
-                    "The worker is offline. Start npm run worker to process the queue.",
-                  )}
-                </p>
-              )}
-              <Button className="full" disabled={busy || !state.credentials.length}>
-                <Play size={15} />
-                {t("Lancer les appels API", "Start API calls")}
-              </Button>
-            </form>
-          </Modal>
+            onSave={(data) =>
+              act(
+                async () => {
+                  const r = await api<{ id: string }>("runs", "POST", data);
+                  setRunId(r.id);
+                  setTab("history");
+                },
+                t(
+                  "Campagne mise en file. Les réponses apparaîtront automatiquement.",
+                  "Campaign queued. Responses will appear automatically.",
+                ),
+              )
+            }
+          />
         )}
         {(modal === "query" || modal === "brand") && project && (
           <Modal
@@ -1465,9 +1443,11 @@ export function Workspace() {
                 ? t("Coût inconnu", "Cost unknown")
                 : money(response.cost_micros)}
             </p>
-            <div className="answer">
-              {response.answer || t("Aucune réponse disponible.", "No response available.")}
-            </div>
+            <GroundedAnswer
+              response={response}
+              citations={detail?.citations.filter((c) => c.response_id === response.id) ?? []}
+              t={t}
+            />
             {response.error_code && <p className="alert error">{response.error_code}</p>}
             <h3>{t("Extraits justifiant les mentions", "Evidence supporting mentions")}</h3>
             {detail?.mentions

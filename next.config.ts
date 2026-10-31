@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["pdfkit", "sharp"],
+  outputFileTracingIncludes: {
+    "/*": [
+      "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff",
+      "./node_modules/@fontsource/noto-sans/LICENSE",
+    ],
+  },
   poweredByHeader: false,
   async headers() {
     return [

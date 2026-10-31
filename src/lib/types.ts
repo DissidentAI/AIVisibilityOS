@@ -1,5 +1,5 @@
 import type { Brand } from "./measurement";
-import type { Provider } from "./providers";
+import type { Provider, Grounding } from "./providers";
 export type User = { id: string; org_id: string; email: string };
 export type Query = { id: string; text: string; project_id: string };
 export type Project = {
@@ -49,6 +49,7 @@ export type ResponseRecord = {
   parameters: Record<string, unknown>;
   status: string;
   answer: string | null;
+  grounding: Grounding | null;
   error_code: string | null;
   request_id: string | null;
   input_tokens: number | null;

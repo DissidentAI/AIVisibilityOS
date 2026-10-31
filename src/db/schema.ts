@@ -10,7 +10,9 @@ import {
   index,
   primaryKey,
   foreignKey,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql as schemaSql } from "drizzle-orm";
 const id = () => uuid("id").defaultRandom().primaryKey();
 const created = () => timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
 export const organizations = pgTable("organizations", {
@@ -146,6 +148,7 @@ export const responses = pgTable(
     status: text("status").default("queued").notNull(),
     answer: text("answer"),
     raw: jsonb("raw"),
+    grounding: jsonb("grounding"),
     errorCode: text("error_code"),
     requestId: text("request_id"),
     inputTokens: integer("input_tokens"),
@@ -225,3 +228,75 @@ export const workerHeartbeats = pgTable("worker_heartbeats", {
   id: text("id").primaryKey(),
   seenAt: timestamp("seen_at", { withTimezone: true }).notNull(),
 });
+
+export const schedules = pgTable(
+  "measurement_schedules",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    snapshot: jsonb("snapshot").notNull(),
+    intervalHours: integer("interval_hours").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
+    createdAt: created(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.orgId],
+      foreignColumns: [projects.id, projects.orgId],
+    }).onDelete("cascade"),
+    unique("schedule_project_unique").on(t.projectId, t.orgId),
+    unique("schedule_org_unique").on(t.id, t.orgId),
+    index("schedule_due_idx").on(t.enabled, t.nextRunAt),
+    check("schedule_interval_supported", schemaSql`${t.intervalHours} in (24, 168)`),
+  ],
+);
+export const scheduleEvents = pgTable(
+  "schedule_events",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    scheduleId: uuid("schedule_id").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    outcome: text("outcome").notNull(),
+    reason: text("reason"),
+    runId: uuid("run_id"),
+    missedSlots: integer("missed_slots").default(0).notNull(),
+    createdAt: created(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.scheduleId, t.orgId],
+      foreignColumns: [schedules.id, schedules.orgId],
+    }).onDelete("cascade"),
+    unique("schedule_occurrence_unique").on(t.scheduleId, t.dueAt),
+    index("schedule_event_org_idx").on(t.orgId, t.createdAt),
+  ],
+);
+export const reportBranding = pgTable("report_branding", {
+  orgId: uuid("org_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  agencyName: text("agency_name").notNull(),
+  logoData: text("logo_data"),
+});
+export const reports = pgTable(
+  "reports",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    title: text("title").notNull(),
+    payload: jsonb("payload").notNull(),
+    createdAt: created(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.orgId],
+      foreignColumns: [projects.id, projects.orgId],
+    }).onDelete("cascade"),
+    index("reports_org_project_idx").on(t.orgId, t.projectId, t.createdAt),
+  ],
+);

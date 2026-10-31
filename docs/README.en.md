@@ -46,7 +46,7 @@ The visibility score equals the explicit brand mention rate: `100 × mentioning 
 
 Country is textual prompt context, not geolocation. Web search is disabled in the initial configurations; generated text URLs are not promoted to verified citations. Full provider metadata is retained. Exact models and pricing are captured in each campaign configuration. See [methodology](METHODOLOGY.md).
 
-This release supports one owner per installation. Teams, recurring schedules, PDF reports, alerts, content audits, GEO recommendations, Stripe and a hosted multi-tenant service remain future work. See [roadmap](ROADMAP.md) and [security](../SECURITY.md).
+This release supports one owner per installation. Persistent daily/weekly campaigns, explicit web-search measurements, preflight cost previews and branded PDF reports with immutable JSON evidence are available; see [agency workflows](AGENCY-WORKFLOWS.md). Teams, automatic report delivery, outbound alerts, content audits, GEO recommendations, Stripe and a hosted multi-tenant service remain future work. See [roadmap](ROADMAP.md) and [security](../SECURITY.md).
 
 ## Open source and business
 

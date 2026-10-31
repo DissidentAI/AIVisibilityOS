@@ -1,3 +1,18 @@
+import {
+  saveSchedule,
+  dispatchSchedule,
+  setScheduleEnabled,
+  nextOccurrence,
+} from "../src/lib/schedules";
+import { estimateRun } from "../src/lib/service";
+import {
+  createReport,
+  getReport,
+  saveBranding,
+  getBranding,
+  reportMetrics,
+} from "../src/lib/reports";
+import sharp from "sharp";
 import { beforeAll, beforeEach, afterAll, describe, test, expect } from "vitest";
 import { randomBytes } from "node:crypto";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -273,5 +288,245 @@ describe("PostgreSQL integration, authorization and durable measurements", () =>
     await rateLimit("fixture", 2);
     await rateLimit("fixture", 2);
     await expect(rateLimit("fixture", 2)).rejects.toThrow("rate_limited");
+  });
+});
+
+const fixtureResult = {
+  status: "succeeded" as const,
+  text: "Karburo et Concurrent Test.",
+  model: "fixture-stable-model",
+  requestId: "fixture-only",
+  input: 100,
+  output: 50,
+  raw: { syntheticFixture: true },
+  citations: [],
+};
+async function completed(user: User, projectId: string, mode: "baseline" | "web" = "baseline") {
+  const run = await createRun(user, { projectId, providers: ["openai"], samples: 1, mode });
+  while (
+    await workOnce(async () => ({
+      ...fixtureResult,
+      grounding: {
+        searched: mode === "web",
+        toolCalls: mode === "web" ? 1 : 0,
+        queries: [],
+        searchEntryHtml: null,
+        links: [],
+      },
+    }))
+  ) {}
+  return run;
+}
+describe("agency workflows with PostgreSQL and synthetic provider fixtures", () => {
+  test("quotes are read-only, include search costs, and reject a changed configuration", async () => {
+    const a = await prepared();
+    const p = { projectId: a.projectId, providers: ["openai", "gemini"], samples: 1 };
+    const baseline = await estimateRun(a.user, p),
+      web = await estimateRun(a.user, { ...p, mode: "web" });
+    expect(web.responses).toBe(20);
+    expect(web.reservedMicros).toBeGreaterThan(baseline.reservedMicros);
+    expect(web.configHash).not.toBe(baseline.configHash);
+    expect(await sql`select * from measurement_runs`).toHaveLength(0);
+    expect(await sql`select * from usage_records`).toHaveLength(0);
+    await sql`update tracked_queries set text=text||' updated' where project_id=${a.projectId}`;
+    await expect(
+      createRun(a.user, { ...p, expectedConfigHash: baseline.configHash }),
+    ).rejects.toThrow("configuration_changed");
+  });
+  test("web charges include tool usage and persist actual grounding metadata", async () => {
+    const a = await prepared(),
+      run = await completed(a.user, a.projectId, "web");
+    const detail = await getRun(a.user, run.id);
+    expect(detail.responses[0].grounding?.searched).toBe(true);
+    // 100 input * .4 + 50 output * 1.6 + 10,000 tool + 8,000 * .4 search block.
+    expect(detail.responses[0].cost_micros).toBe(13320);
+    expect((await getState(a.user)).usage.reserved).toBe(0);
+  });
+  test("schedules freeze questions and dispatch each occurrence once across concurrent workers", async () => {
+    const a = await prepared();
+    const saved = await saveSchedule(a.user, {
+      projectId: a.projectId,
+      providers: ["openai"],
+      samples: 1,
+      intervalHours: 24,
+      firstRunAt: new Date(Date.now() + 86400_000).toISOString(),
+    });
+    await sql`update tracked_queries set text='Updated question '||id where project_id=${a.projectId}`;
+    await sql`update measurement_schedules set next_run_at=now()-interval '10 days' where id=${saved.id}`;
+    const result = await Promise.all([dispatchSchedule(), dispatchSchedule(), dispatchSchedule()]);
+    expect(result.filter(Boolean)).toHaveLength(1);
+    const events = await sql`select * from schedule_events`;
+    expect(events).toHaveLength(1);
+    expect(events[0].missed_slots).toBe(10);
+    expect(events[0].outcome).toBe("queued");
+    const detail = await getRun(a.user, events[0].run_id);
+    expect(detail.run.snapshot.queries[0].text).not.toContain("Updated");
+    expect(await sql`select * from usage_records`).toHaveLength(10);
+    expect(await dispatchSchedule()).toBe(false);
+  });
+  test("budget exhaustion and overlap skip safely; pause and resume do not replay missed calls", async () => {
+    const a = await prepared();
+    const saved = await saveSchedule(a.user, {
+      projectId: a.projectId,
+      providers: ["gemini"],
+      samples: 1,
+      intervalHours: 168,
+      firstRunAt: new Date(Date.now() + 86400_000).toISOString(),
+    });
+    await sql`update organizations set budget_micros=1 where id=${a.user.org_id}`;
+    await sql`update measurement_schedules set next_run_at=now()-interval '1 hour' where id=${saved.id}`;
+    await dispatchSchedule();
+    const [event] = await sql`select * from schedule_events`;
+    expect(event.reason).toBe("budget_exceeded");
+    expect(await sql`select * from measurement_runs`).toHaveLength(0);
+    await setScheduleEnabled(a.user, saved.id, { enabled: false });
+    await sql`update measurement_schedules set next_run_at=now()-interval '1 day' where id=${saved.id}`;
+    expect(await dispatchSchedule()).toBe(false);
+    await setScheduleEnabled(a.user, saved.id, { enabled: true });
+    expect(await dispatchSchedule()).toBe(false);
+    const [schedule] =
+      await sql`select next_run_at > now()+interval '6 days' as future from measurement_schedules where id=${saved.id}`;
+    expect(schedule.future).toBe(true);
+  });
+  test("a skipped overlapping campaign does not prevent another client's schedule", async () => {
+    const a = await prepared(),
+      b = await createProject(a.user, { ...input, name: "Other project", domain: "other.example" });
+    for (const projectId of [a.projectId, b.id])
+      await saveSchedule(a.user, {
+        projectId,
+        providers: ["openai"],
+        samples: 1,
+        intervalHours: 24,
+        firstRunAt: new Date(Date.now() + 86400_000).toISOString(),
+      });
+    await createRun(a.user, { projectId: a.projectId, providers: ["openai"], samples: 1 });
+    await sql`update measurement_schedules set next_run_at=now()-interval '1 hour'`;
+    await dispatchSchedule();
+    await dispatchSchedule();
+    const events = await sql`select * from schedule_events`;
+    expect(events.filter((e) => e.reason === "campaign_already_running")).toHaveLength(1);
+    expect(events.filter((e) => e.outcome === "queued")).toHaveLength(1);
+  });
+  test("reports freeze branding/evidence, generate an actual PDF, and reject incompatible comparisons", async () => {
+    const a = await prepared();
+    const logo = await sharp({
+      create: { width: 32, height: 16, channels: 3, background: "#0f766e" },
+    })
+      .png()
+      .toBuffer();
+    await saveBranding(a.user, {
+      agencyName: "Agence Évidence",
+      logoData: `data:image/png;base64,${logo.toString("base64")}`,
+    });
+    const one = await completed(a.user, a.projectId),
+      two = await completed(a.user, a.projectId);
+    const saved = await createReport(a.user, {
+      runId: two.id,
+      previousRunId: one.id,
+      locale: "fr",
+      notes: "Commentaire de test synthétique.",
+    });
+    const report = await getReport(a.user, saved.id);
+    expect(report.payload.previous?.run.id).toBe(one.id);
+    expect(reportMetrics(report.payload.current)[0].n).toBe(10);
+    await saveBranding(a.user, { agencyName: "Changed", logoData: null });
+    expect((await getReport(a.user, saved.id)).payload.branding.agency_name).toBe(
+      "Agence Évidence",
+    );
+    const pdf = await route("GET", `reports/${saved.id}/pdf`, a.cookie);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers.get("content-type")).toBe("application/pdf");
+    const bytes = Buffer.from(await pdf.arrayBuffer());
+    expect(bytes.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(bytes.length).toBeGreaterThan(10000);
+    expect(bytes.subarray(-20).toString()).toContain("%%EOF");
+    const web = await completed(a.user, a.projectId, "web");
+    await expect(
+      createReport(a.user, { runId: web.id, previousRunId: one.id, locale: "en" }),
+    ).rejects.toThrow("report_not_comparable");
+    // Retention of runs must not silently modify the report's evidence bundle.
+    await sql`delete from measurement_runs where id=${one.id}`;
+    expect((await getReport(a.user, saved.id)).payload.previous?.responses).toHaveLength(10);
+  });
+  test("logo validation rejects arbitrary URLs, SVG and oversized decompressed images", async () => {
+    const a = await prepared();
+    for (const logoData of [
+      "https://localhost/secret",
+      "data:image/svg+xml;base64,PHN2Zz4=",
+      "data:image/png;base64,AAAA",
+    ])
+      await expect(saveBranding(a.user, { agencyName: "Agency", logoData })).rejects.toThrow(
+        "invalid_logo",
+      );
+    const huge = await sharp({
+      create: { width: 2000, height: 2000, channels: 3, background: "#000" },
+    })
+      .png()
+      .toBuffer();
+    await expect(
+      saveBranding(a.user, {
+        agencyName: "Agency",
+        logoData: `data:image/png;base64,${huge.toString("base64")}`,
+      }),
+    ).rejects.toThrow("invalid_logo");
+    expect((await getBranding(a.user)).logo_data).toBeNull();
+  });
+  test("schedules, budget previews, branding and PDF evidence respect tenant boundaries", async () => {
+    const a = await prepared(),
+      b = await owner("b");
+    const run = await completed(a.user, a.projectId);
+    const report = await createReport(a.user, { runId: run.id, locale: "en" });
+    const schedule = await saveSchedule(a.user, {
+      projectId: a.projectId,
+      providers: ["openai"],
+      samples: 1,
+      intervalHours: 24,
+      firstRunAt: new Date(Date.now() + 86400_000).toISOString(),
+    });
+    for (const path of [
+      `reports/${report.id}/pdf`,
+      `reports/${report.id}/data`,
+      `reports?project=${a.projectId}`,
+      `schedules?project=${a.projectId}`,
+    ])
+      expect((await route("GET", path, b.cookie)).status).toBe(404);
+    expect(
+      (await route("POST", `schedules/${schedule.id}`, b.cookie, { enabled: false })).status,
+    ).toBe(404);
+    expect(
+      (
+        await route("POST", "runs/estimate", b.cookie, {
+          projectId: a.projectId,
+          providers: ["openai"],
+          samples: 1,
+        })
+      ).status,
+    ).toBe(404);
+    expect((await route("POST", "reports", b.cookie, { runId: run.id, locale: "en" })).status).toBe(
+      404,
+    );
+    expect((await route("DELETE", `reports/${report.id}`, b.cookie)).status).toBe(404);
+    expect((await route("GET", `reports/${report.id}/pdf`, "")).status).toBe(401);
+    expect(
+      (
+        await route(
+          "POST",
+          `schedules/${schedule.id}`,
+          a.cookie,
+          { enabled: false },
+          "https://evil.example",
+        )
+      ).status,
+    ).toBe(403);
+    await expect(
+      sql`insert into measurement_schedules(org_id,project_id,snapshot,interval_hours,next_run_at) values(${b.user.org_id},${a.projectId},'{}'::jsonb,24,now())`,
+    ).rejects.toThrow();
+  });
+  test("UTC recurrence skips arbitrarily old slots without drift or a burst", () => {
+    const due = new Date("2026-03-28T09:00:00Z"),
+      now = new Date("2026-03-30T10:00:00Z");
+    const next = nextOccurrence(due, 24, now);
+    expect(next.next.toISOString()).toBe("2026-03-31T09:00:00.000Z");
+    expect(next.missed).toBe(2);
   });
 });

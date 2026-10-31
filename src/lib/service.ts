@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TransactionSql } from "postgres";
 import { sql, db } from "../db/client";
 import { eq, desc } from "drizzle-orm";
 import { projects as projectTable } from "../db/schema";
@@ -9,6 +10,8 @@ import {
   PROVIDERS,
   MAX_OUTPUT,
   PRICE_DATE,
+  SEARCH_PRICING,
+  MEASUREMENT_MODES,
   reserveMicros,
   instructions,
   type Provider,
@@ -139,84 +142,172 @@ export async function saveCredential(user: User, data: unknown) {
   const encrypted = encryptSecret(key, `${user.org_id}:${provider}`);
   await sql`insert into credentials (org_id,provider,encrypted_key) values (${user.org_id},${provider},${encrypted}) on conflict (org_id,provider) do update set encrypted_key=excluded.encrypted_key, updated_at=now()`;
 }
-export async function createRun(user: User, data: unknown) {
-  const p = z
-    .object({
-      projectId: z.uuid(),
-      providers: z
-        .array(z.enum(PROVIDERS))
-        .min(1)
-        .max(2)
-        .refine((a) => new Set(a).size === a.length),
-      samples: z.number().int().min(1).max(5),
-    })
-    .parse(data);
+export const runSchema = z.object({
+  projectId: z.uuid(),
+  providers: z
+    .array(z.enum(PROVIDERS))
+    .min(1)
+    .max(2)
+    .refine((a) => new Set(a).size === a.length),
+  samples: z.number().int().min(1).max(5),
+  mode: z.enum(MEASUREMENT_MODES).default("baseline"),
+  expectedConfigHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+export async function snapshotFor(
+  tx: TransactionSql,
+  user: User,
+  p: z.infer<typeof runSchema>,
+): Promise<Snapshot> {
+  const [project] = await tx<
+    Project[]
+  >`select * from projects where id=${p.projectId} and org_id=${user.org_id} for share`;
+  if (!project) throw new AppError("not_found", 404);
+  const bs = await tx<
+    Brand[]
+  >`select id,name,domain,is_primary from brands where project_id=${project.id} and org_id=${user.org_id} order by id`;
+  const qs = await tx<
+    Query[]
+  >`select id,text,project_id from tracked_queries where project_id=${project.id} and org_id=${user.org_id} order by id`;
+  if (!qs.length) throw new AppError("queries_required");
+  return {
+    project: {
+      name: project.name,
+      domain: project.domain,
+      language: project.language,
+      country: project.country,
+    },
+    brands: bs,
+    queries: qs,
+    providers: [...p.providers].sort(),
+    models: Object.fromEntries(p.providers.map((pr) => [pr, MODELS[pr].id])),
+    samples: p.samples,
+    methodology: METHODOLOGY,
+    system: instructions(project.language, project.country),
+    parameters: {
+      max_output_tokens: MAX_OUTPUT,
+      temperature: 0.7,
+      search: p.mode === "web",
+      mode: p.mode,
+      countryMode: "prompt_context_only",
+      channel: "official_api",
+      geminiThinkingBudget: 0,
+      ...(p.mode === "web"
+        ? {
+            openaiTool: "web_search",
+            openaiMaxToolCalls: 1,
+            openaiSearchContext: "low",
+            geminiTool: "google_search",
+          }
+        : {}),
+    },
+    pricing: {
+      date: PRICE_DATE,
+      currency: "USD",
+      models: MODELS,
+      search: SEARCH_PRICING,
+      searchEstimate:
+        "full_paid_rate_no_free_allowance; OpenAI fixed search-content block added conservatively to reported input usage",
+    },
+  };
+}
+export function snapshotReservation(snapshot: Snapshot) {
+  return snapshot.queries.reduce(
+    (sum, q) =>
+      sum +
+      snapshot.providers.reduce(
+        (s, pr) =>
+          s +
+          reserveMicros(
+            pr,
+            q.text,
+            snapshot.system,
+            snapshot.parameters.search === true ? "web" : "baseline",
+          ) *
+            snapshot.samples,
+        0,
+      ),
+    0,
+  );
+}
+export async function budgetStatus(tx: TransactionSql, user: User) {
+  const [org] = await tx`select budget_micros from organizations where id=${user.org_id}`;
+  if (!org) throw new AppError("not_found", 404);
+  const [spent] =
+    await tx`select coalesce(sum(amount_micros) filter(where org_id=${user.org_id}),0)::int as org, coalesce(sum(amount_micros),0)::int as installation from usage_records where created_at >= date_trunc('month', now() at time zone 'UTC') at time zone 'UTC' or kind='reserved'`;
+  return {
+    orgRemaining: Math.max(0, org.budget_micros - spent.org),
+    installationRemaining: Math.max(0, ceilingMicros() - spent.installation),
+  };
+}
+export async function estimateRun(user: User, data: unknown) {
+  const p = runSchema.parse(data);
   return sql.begin(async (tx) => {
-    // Serializes installation and organization budget reservations across all web replicas.
-    await tx`select pg_advisory_xact_lock(824762)`;
-    const [org] = await tx`select * from organizations where id=${user.org_id} for update`;
-    const [project] = await tx<
-      Project[]
-    >`select * from projects where id=${p.projectId} and org_id=${user.org_id} for update`;
-    if (!project) throw new AppError("not_found", 404);
-    const [pending] =
-      await tx`select count(*)::int as n from ai_responses where org_id=${user.org_id} and status in ('queued','running')`;
-    if (pending.n > 0) throw new AppError("campaign_already_running", 409);
-    const bs = await tx<
-      Brand[]
-    >`select id,name,domain,is_primary from brands where project_id=${project.id} and org_id=${user.org_id} order by id`;
-    const qs = await tx<
-      Query[]
-    >`select id,text,project_id from tracked_queries where project_id=${project.id} and org_id=${user.org_id} order by id`;
-    if (!qs.length) throw new AppError("queries_required");
-    const creds = await tx`select provider from credentials where org_id=${user.org_id}`;
-    if (p.providers.some((provider) => !creds.some((c) => c.provider === provider)))
-      throw new AppError("credentials_required");
-    const system = instructions(project.language, project.country);
-    const total = qs.reduce(
-      (sum, q) =>
-        sum + p.providers.reduce((s, pr) => s + reserveMicros(pr, q.text, system) * p.samples, 0),
-      0,
-    );
-    const [spent] =
-      await tx`select coalesce(sum(amount_micros) filter(where org_id=${user.org_id}),0)::int as org, coalesce(sum(amount_micros),0)::int as installation from usage_records where created_at >= date_trunc('month', now() at time zone 'UTC') at time zone 'UTC' or kind='reserved'`;
-    if (spent.org + total > org.budget_micros || spent.installation + total > ceilingMicros())
-      throw new AppError("budget_exceeded", 409);
-    const snapshot: Snapshot = {
-      project: {
-        name: project.name,
-        domain: project.domain,
-        language: project.language,
-        country: project.country,
-      },
-      brands: bs,
-      queries: qs,
-      providers: [...p.providers].sort(),
-      models: Object.fromEntries(p.providers.map((pr) => [pr, MODELS[pr].id])),
-      samples: p.samples,
-      methodology: METHODOLOGY,
-      system,
-      parameters: {
-        max_output_tokens: MAX_OUTPUT,
-        temperature: 0.7,
-        search: false,
-        countryMode: "prompt_context_only",
-        channel: "official_api",
-        geminiThinkingBudget: 0,
-      },
-      pricing: { date: PRICE_DATE, currency: "USD", models: MODELS },
+    const snapshot = await snapshotFor(tx, user, p);
+    const budget = await budgetStatus(tx, user);
+    const reservedMicros = snapshotReservation(snapshot);
+    return {
+      reservedMicros,
+      responses: snapshot.queries.length * snapshot.samples * snapshot.providers.length,
+      ...budget,
+      affordable: reservedMicros <= Math.min(budget.orgRemaining, budget.installationRemaining),
+      configHash: digest(JSON.stringify(snapshot)),
+      snapshot,
     };
-    const hash = digest(JSON.stringify(snapshot));
-    const [run] =
-      await tx`insert into measurement_runs (org_id,project_id,config_hash,snapshot) values (${user.org_id},${project.id},${hash},${JSON.stringify(snapshot)}::jsonb) returning id`;
-    for (const q of qs)
-      for (const provider of p.providers)
-        for (let sample = 1; sample <= p.samples; sample++) {
-          const [response] =
-            await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,sample,parameters) values (${user.org_id},${run.id},${q.text},${provider},${MODELS[provider].id},${sample},${JSON.stringify(snapshot.parameters)}::jsonb) returning id`;
-          await tx`insert into usage_records (org_id,response_id,amount_micros) values (${user.org_id},${response.id},${reserveMicros(provider, q.text, system)})`;
-        }
-    return { id: run.id as string, reservedMicros: total };
+  });
+}
+// Caller holds the installation advisory lock; scheduler and manual launches share this path.
+export async function enqueueSnapshot(
+  tx: TransactionSql,
+  user: User,
+  projectId: string,
+  snapshot: Snapshot,
+) {
+  await tx`select id from organizations where id=${user.org_id} for update`;
+  const [project] =
+    await tx`select id from projects where id=${projectId} and org_id=${user.org_id} for update`;
+  if (!project) throw new AppError("not_found", 404);
+  const [pending] =
+    await tx`select count(*)::int as n from ai_responses a join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where a.org_id=${user.org_id} and r.project_id=${projectId} and a.status in ('queued','running')`;
+  if (pending.n > 0) throw new AppError("campaign_already_running", 409);
+  if (
+    snapshot.providers.some((p) => snapshot.models[p] !== MODELS[p].id) ||
+    snapshot.pricing.date !== PRICE_DATE
+  )
+    throw new AppError("model_configuration_changed", 409);
+  // Never silently substitute a model: its retirement starts a new measurement series.
+  if (snapshot.providers.includes("openai") && new Date() >= new Date("2027-01-14T00:00:00Z"))
+    throw new AppError("model_retired", 409);
+  const creds = await tx`select provider from credentials where org_id=${user.org_id}`;
+  if (snapshot.providers.some((provider) => !creds.some((c) => c.provider === provider)))
+    throw new AppError("credentials_required");
+  const total = snapshotReservation(snapshot),
+    budget = await budgetStatus(tx, user);
+  if (total > Math.min(budget.orgRemaining, budget.installationRemaining))
+    throw new AppError("budget_exceeded", 409);
+  const hash = digest(JSON.stringify(snapshot));
+  const [run] =
+    await tx`insert into measurement_runs (org_id,project_id,config_hash,snapshot) values (${user.org_id},${projectId},${hash},${JSON.stringify(snapshot)}::jsonb) returning id`;
+  for (const q of snapshot.queries)
+    for (const provider of snapshot.providers)
+      for (let sample = 1; sample <= snapshot.samples; sample++) {
+        const [response] =
+          await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,sample,parameters) values (${user.org_id},${run.id},${q.text},${provider},${snapshot.models[provider]},${sample},${JSON.stringify(snapshot.parameters)}::jsonb) returning id`;
+        await tx`insert into usage_records (org_id,response_id,amount_micros) values (${user.org_id},${response.id},${reserveMicros(provider, q.text, snapshot.system, snapshot.parameters.search === true ? "web" : "baseline")})`;
+      }
+  return { id: run.id as string, reservedMicros: total };
+}
+export async function createRun(user: User, data: unknown) {
+  const p = runSchema.parse(data);
+  return sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(824762)`;
+    await tx`select id from organizations where id=${user.org_id} for update`;
+    const snapshot = await snapshotFor(tx, user, p);
+    if (p.expectedConfigHash && p.expectedConfigHash !== digest(JSON.stringify(snapshot)))
+      throw new AppError("configuration_changed", 409);
+    return enqueueSnapshot(tx, user, p.projectId, snapshot);
   });
 }
 export async function listRuns(user: User, projectId: string): Promise<Run[]> {
@@ -234,7 +325,7 @@ export async function getRun(user: User, id: string): Promise<RunDetail> {
   const [responses, mentions, citations] = await Promise.all([
     sql<
       ResponseRecord[]
-    >`select id,run_id,query_text,provider,model,returned_model,channel,sample,parameters,status,answer,error_code,request_id,input_tokens,output_tokens,cost_micros,started_at,finished_at from ai_responses where run_id=${id} and org_id=${user.org_id} order by query_text,provider,sample`,
+    >`select id,run_id,query_text,provider,model,returned_model,channel,sample,parameters,status,answer,grounding,error_code,request_id,input_tokens,output_tokens,cost_micros,started_at,finished_at from ai_responses where run_id=${id} and org_id=${user.org_id} order by query_text,provider,sample`,
     sql<
       Mention[]
     >`select m.* from brand_mentions m join ai_responses a on a.id=m.response_id and a.org_id=m.org_id where a.run_id=${id} and m.org_id=${user.org_id}`,

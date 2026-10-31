@@ -4,10 +4,15 @@
 
 Implémentés : structure Next.js, migrations PostgreSQL/Drizzle, propriétaire et sessions, projets/marques/concurrents/questions, OpenAI/Gemini, campagne persistante, réponses/coûts/mentions, tableaux de bord sans fixtures, comparaison historique à configuration égale, CSV, export/suppression de données et configuration Docker/HTTPS. La validation réelle de clés fournisseur reste distincte des tests simulés ; consulter VALIDATION.md.
 
-## Phase 2 — À valider avec dix agences
+## Phase 2 — Workflows agences livrés, à valider avec dix agences
 
-- Mesures récurrentes : table `measurement_schedules` liée à org/projet, échéance UTC, configuration versionnée, identifiant unique `(schedule_id, due_at)`, réservation par le service de campagnes existant. Pas de cron en mémoire. Une échéance manquée ne doit pas déclencher un rattrapage massif payant.
-- PDF et marque blanche : table `reports`, logo téléchargé et validé, figer les campagnes, méthode/version/taille d’échantillon et avertissements ; pas de lien public sans autorisation et expiration.
+- Planification PostgreSQL persistante : cadence 24/168 h, configuration figée, pause/reprise, unicité des occurrences, aucun rattrapage massif, plafonds communs avec les campagnes manuelles et journal des échéances ignorées.
+- Rapports PDF à la demande en français/anglais, nom/logo validé, comparaison avant/après à configuration et modèles réellement retournés identiques, dossier JSON de preuves et historique de rapports figés. Les téléchargements sont authentifiés.
+- Mode recherche web via les outils officiels OpenAI/Gemini, métadonnées conservées, liens d’attribution et suggestions Google isolées ; aperçu du budget avant lancement ou planification.
+- Restent à valider avec les agences : envoi automatique des rapports, partage temporaire, édition de modèles de rapports et espaces clients collaboratifs.
+
+### Suites non livrées
+
 - Alertes : événements d’exécution, budget et changements ; seuil minimum d’échantillon, comparaison homogène, intervalle d’incertitude et période anti-duplication. Ne pas appeler « baisse significative » une simple différence.
 - Opportunités GEO : `recommendations` avec faits sourcés, hypothèses et actions séparés. Crawl public autorisé avec protections SSRF avant activation. Aucun accès à une URL arbitraire dans le MVP.
 - Sentiment : classification avec extraits vérifiables, incertitude et corrections humaines ; corpus d’évaluation français/anglais avant score produit.

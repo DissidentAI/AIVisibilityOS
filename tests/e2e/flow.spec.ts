@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-test("real browser: registration, Karburo onboarding, fixtures campaign, evidence, CSV and mobile", async ({
+test("real browser: Karburo, cost preview, schedules, branded PDF, web evidence, CSV and mobile", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -45,6 +45,10 @@ test("real browser: registration, Karburo onboarding, fixtures campaign, evidenc
     await expect(page.getByRole("dialog")).toHaveCount(0);
   }
   await page.getByRole("button", { name: "Lancer une mesure" }).click();
+  await expect(page.locator(".estimate-box")).toContainText("20 réponses prévues");
+  await page.getByLabel("Mode de mesure").selectOption("web");
+  await expect(page.locator(".estimate-box")).toContainText("Réservation prudente");
+  await page.getByLabel("Mode de mesure").selectOption("baseline");
   await page.getByRole("button", { name: "Lancer les appels API" }).click();
   await expect(
     page.getByRole("heading", { name: "Historique & exports", exact: true }),
@@ -72,6 +76,75 @@ test("real browser: registration, Karburo onboarding, fixtures campaign, evidenc
   await page.getByRole("link", { name: "CSV", exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toContain("visibility-");
+  await page.getByRole("button", { name: "Planification", exact: true }).click();
+  await page.getByRole("button", { name: "Configurer le planning" }).click();
+  await page.getByLabel("Fréquence", { exact: true }).selectOption("24");
+  await expect(page.locator(".estimate-box")).toContainText("Projection sur 31 jours");
+  await page.getByRole("button", { name: "Enregistrer le planning" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByText("10 questions figées", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Mettre en pause" }).click();
+  await expect(page.getByText("En pause", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Reprendre le planning" }).click();
+  await expect(page.getByText("Actif", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Rapports clients", exact: true }).click();
+  await page.getByLabel("Nom de l’agence", { exact: true }).fill("Agence Test Synthétique");
+  await page.getByRole("button", { name: "Enregistrer l’identité" }).click();
+  await expect(page.getByText("Identité enregistrée.", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Nom de l’agence", { exact: true })).toHaveValue(
+    "Agence Test Synthétique",
+  );
+  await page
+    .getByLabel("Commentaire de l’agence")
+    .fill("Rapport de test — réponses synthétiques exclusivement.");
+  await page.getByRole("button", { name: "Créer le rapport PDF" }).click();
+  await expect(page.getByText("Rapport enregistré. Téléchargez-le ci-dessous.")).toBeVisible();
+  const pdfPromise = page.waitForEvent("download");
+  await page.getByRole("link", { name: "PDF", exact: true }).click();
+  const pdf = await pdfPromise;
+  expect(pdf.suggestedFilename()).toMatch(/^report-.*\.pdf$/);
+  await mkdir(".local", { recursive: true });
+  await pdf.saveAs(".local/agency-test-report.pdf");
+  const evidencePromise = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Preuves JSON", exact: true }).click();
+  const evidence = await evidencePromise;
+  expect(evidence.suggestedFilename()).toMatch(/^evidence-.*\.json$/);
+  const bundle = JSON.parse(await readFile((await evidence.path())!, "utf8"));
+  expect(bundle.branding.agency_name).toBe("Agence Test Synthétique");
+  expect(bundle.current.responses).toHaveLength(20);
+  await page.getByRole("button", { name: "Historique & exports", exact: true }).click();
+  await page.getByRole("button", { name: "Lancer une mesure" }).click();
+  await page.getByLabel("Mode de mesure").selectOption("web");
+  await page.getByRole("button", { name: "Lancer les appels API" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByLabel("Campagne sélectionnée").locator("option:checked")).toContainText(
+    "· Web ·",
+  );
+  await promisify(execFile)(process.execPath, ["--import", "tsx", "tests/e2e/fixture-worker.ts"], {
+    env: {
+      ...process.env,
+      DATABASE_URL:
+        process.env.TEST_DATABASE_URL ??
+        "postgres://test:test-only@127.0.0.1:55434/visibility_test",
+      ENCRYPTION_KEY: "12".repeat(32),
+    },
+  });
+  await expect(page.getByText("Valide", { exact: true })).toHaveCount(20, { timeout: 20000 });
+  await page.getByRole("button", { name: "Ouvrir", exact: true }).first().click();
+  await expect(
+    page.getByText("Recherche web observée dans les métadonnées fournisseur."),
+  ).toBeVisible();
+  await expect(page.locator(".citation-marker").first()).toHaveAttribute(
+    "href",
+    "https://example.com/evidence",
+  );
+  await expect(
+    page.frameLocator(".search-suggestions").getByText("Google Search — synthetic suggestions"),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => (window as unknown as Record<string, unknown>).unsafeFixtureExecuted),
+  ).toBeUndefined();
+  await page.getByRole("button", { name: "Close / Fermer" }).click();
   await page.getByRole("button", { name: "Passer en anglais" }).click();
   await expect(page.getByRole("heading", { name: "History & exports", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
