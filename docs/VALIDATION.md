@@ -1,14 +1,14 @@
 # Validation effectuée
 
-État vérifié le **31 octobre 2026**, sur macOS arm64, Node 24.19, PostgreSQL 18 local.
+État vérifié le **1er novembre 2026**, sur macOS arm64, Node 24.19, PostgreSQL 18 local.
 
 | Vérification                                                | Résultat                                                                           |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Migrations sur base vide et seconde application idempotente | Réussite                                                                           |
 | TypeScript strict                                           | Réussite                                                                           |
-| Tests unitaires + intégration PostgreSQL                    | **41 tests réussis**                                                               |
+| Tests unitaires + intégration PostgreSQL                    | **48 tests réussis**                                                               |
 | Build Next.js production standalone                         | Réussite                                                                           |
-| Parcours navigateur Chromium et WebKit                      | **3 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
+| Parcours navigateur Chromium et WebKit                      | **4 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
 | Audit npm, dépendances de production et développement       | **0 vulnérabilité signalée** au contrôle effectué                                  |
 | Connexion réelle OpenAI                                     | Non vérifiée : aucune clé réelle fournie                                           |
 | Connexion réelle Gemini                                     | Non vérifiée : aucune clé réelle fournie                                           |
@@ -50,3 +50,11 @@ Les contrôles ont permis de corriger le focus pendant l’ouverture du menu, la
 Une prévisualisation HTTPS temporaire a été ouverte à la demande du propriétaire via Cloudflare Quick Tunnel, vers une copie isolée du build de production sur le Mac. Le chargement du formulaire sur le lien HTTPS a été vérifié dans le navigateur à 390 px ; `/api/health` répond, `/api/state` refuse une session absente et une mutation d’origine étrangère est rejetée. Aucun compte de test, aucune clé factice et aucune mesure synthétique n’ont été ajoutés à cette installation. Le code de première installation et l’adresse éphémère restent hors du dépôt. Ce tunnel n’est pas un déploiement SaaS permanent.
 
 Les limites restent identiques : aucun appel réel aux fournisseurs sans clés, aucun test sur téléphone physique, aucune garantie de disponibilité du Mac, et aucun audit de sécurité indépendant.
+
+## Correction de la création de projet sur mobile
+
+Le formulaire et l’API utilisent désormais les mêmes règles de validation. Les adresses web complètes (avec chemin, paramètres ou majuscules) sont acceptées et seul leur domaine validé est enregistré. Les étapes sont vérifiées avant de continuer ; un rejet du serveur ramène au champ concerné et conserve les saisies. Les erreurs de questions indiquent leur numéro, et les champs invalides sont annoncés aux technologies d’assistance.
+
+Le défaut a été reproduit en comparant l’ancien schéma, qui rejetait une URL avec chemin, au schéma corrigé. Le domaine exact de la saisie signalée par le propriétaire n’était pas disponible : cette reproduction ne permet pas de lui attribuer une cause certaine. Les tests couvrent aussi les domaines invalides, les noms et questions en double, les limites conservées, l’absence d’écriture partielle et les accès anonymes refusés.
+
+Un nouveau parcours WebKit à 390 px crée réellement un projet dans la base de test avec les noms « Karbu France » et « Gasoil Now », des domaines réservés `.example` et dix questions proposées par le formulaire. Il contrôle le focus sur le domaine invalide, une question en double et le retour à l’étape Concurrents après un rejet serveur **simulé uniquement dans le test**. La requête suivante utilise la véritable API et vérifie les domaines enregistrés. Aucun appel fournisseur ni aucune donnée de test n’est ajouté à l’installation de prévisualisation.

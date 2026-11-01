@@ -14,8 +14,16 @@ import { X, Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
+import { isProjectIssue, type ProjectIssue } from "@/lib/project-validation";
 export type Translate = (fr: string, en: string) => string;
 export const ModalError = createContext("");
+export class ApiError extends Error {
+  readonly issues: ProjectIssue[];
+  constructor(code: string, issues?: unknown) {
+    super(code);
+    this.issues = Array.isArray(issues) ? issues.filter(isProjectIssue).slice(0, 60) : [];
+  }
+}
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   const res = await fetch(`/api/${path}`, {
     method,
@@ -23,7 +31,7 @@ export async function api<T>(path: string, method = "GET", data?: unknown): Prom
     body: data === undefined ? undefined : JSON.stringify(data),
   });
   const result = await res.json();
-  if (!res.ok) throw new Error(result.error ?? "internal_error");
+  if (!res.ok) throw new ApiError(result.error ?? "internal_error", result.issues);
   return result;
 }
 export function Modal({
@@ -90,19 +98,36 @@ export function Field({
   label,
   children,
   hint,
+  error,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  error?: string;
 }) {
   const id = useId();
-  const control = isValidElement<{ id?: string; "aria-describedby"?: string }>(children)
-    ? cloneElement(children, { id, "aria-describedby": hint ? `${id}-hint` : undefined })
+  const control = isValidElement<{
+    id?: string;
+    "aria-describedby"?: string;
+    "aria-invalid"?: boolean;
+  }>(children)
+    ? cloneElement(children, {
+        id,
+        "aria-describedby":
+          [hint ? `${id}-hint` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ") ||
+          undefined,
+        "aria-invalid": error ? true : undefined,
+      })
     : children;
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
       {control}
+      {error && (
+        <small id={`${id}-error`} className="field-error">
+          {error}
+        </small>
+      )}
       {hint && <small id={`${id}-hint`}>{hint}</small>}
     </div>
   );

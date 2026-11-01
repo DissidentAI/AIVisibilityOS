@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { sql } from "@/db/client";
 import { AppError } from "@/lib/errors";
+import { ProjectValidationError } from "@/lib/project-validation";
 import { authenticate, rateLimit, requireUser, sessionCookie, sessionToken } from "@/lib/auth";
 import { assertOrigin, digest, verifyPassword } from "@/lib/security";
 import {
@@ -286,6 +287,8 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
     }
     throw new AppError("not_found", 404);
   } catch (error) {
+    if (error instanceof ProjectValidationError)
+      return json({ error: error.code, issues: error.issues }, error.status);
     if (error instanceof AppError) return json({ error: error.code }, error.status);
     if (error instanceof z.ZodError) return json({ error: "invalid_input" }, 400);
     // SQL errors may contain submitted secrets. Never log or return error objects.

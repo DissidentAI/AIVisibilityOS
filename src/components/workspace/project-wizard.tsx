@@ -4,7 +4,17 @@ import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "../ui/button";
-import { Field, Modal, type Translate } from "./shared";
+import { ApiError, Field, Modal, friendly, type Translate } from "./shared";
+import {
+  normalizeWebsiteDomain,
+  projectDetailsSchema,
+  projectCompetitorsSchema,
+  projectSchema,
+  projectIssues,
+  projectIssueStep,
+  projectIssueMessage,
+  type ProjectIssue,
+} from "@/lib/project-validation";
 export function ProjectWizard({
   t,
   busy,
@@ -14,7 +24,7 @@ export function ProjectWizard({
   t: Translate;
   busy: boolean;
   onClose: () => void;
-  onSave: (data: unknown) => void;
+  onSave: (data: unknown) => Promise<unknown>;
 }) {
   const [step, setStep] = useState(1),
     [name, setName] = useState(""),
@@ -32,7 +42,32 @@ export function ProjectWizard({
   useEffect(() => {
     if (step > 1) stepRef.current?.querySelector<HTMLInputElement>("input, textarea")?.focus();
   }, [step]);
+  const [issues, setIssues] = useState<ProjectIssue[]>([]);
+  const [saveError, setSaveError] = useState("");
+  function clearErrors() {
+    if (issues.length) setIssues([]);
+    if (saveError) setSaveError("");
+  }
+  const fieldError = (field: string) =>
+    issues
+      .filter(
+        (issue) =>
+          issue.field === field || (field === "queries" && issue.field.startsWith("queries.")),
+      )
+      .map((issue) => projectIssueMessage(issue, t))
+      .join("\n");
+  useEffect(() => {
+    const first = issues[0];
+    if (!first) return;
+    const field = first.field.startsWith("queries") ? "queries" : first.field;
+    const control = stepRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+      `[data-project-field="${field}"]`,
+    );
+    control?.focus();
+    control?.scrollIntoView({ block: "nearest" });
+  }, [issues, step]);
   function suggest() {
+    clearErrors();
     const topic = industry || t("ce secteur", "this sector");
     setQuestions(
       language === "fr"
@@ -82,20 +117,77 @@ export function ProjectWizard({
           ),
         )}
       </div>
+      {(issues.length > 0 || saveError) && (
+        <p className="alert error" role="alert">
+          {saveError ||
+            t(
+              "Corrigez le champ indiqué ci-dessous. Vos saisies sont conservées.",
+              "Correct the field shown below. Your entries have been kept.",
+            )}
+        </p>
+      )}
       <form
-        onSubmit={(e: FormEvent) => {
+        noValidate
+        onChange={clearErrors}
+        onSubmit={async (e: FormEvent) => {
           e.preventDefault();
-          if (step < 3) setStep(step + 1);
-          else
-            onSave({
-              name,
-              domain,
-              industry,
-              country,
-              language,
-              competitors: competitors.filter((c) => c.name.trim() && c.domain.trim()),
-              queries: qs,
-            });
+          if (busy) return;
+          clearErrors();
+          // Ignore only completely empty rows. Keep the mapping to the visible row for errors.
+          const entered = competitors
+            .map((value, index) => ({ value, index }))
+            .filter(({ value }) => value.name.trim() || value.domain.trim());
+          const data = {
+            name,
+            domain,
+            industry,
+            country,
+            language,
+            competitors: entered.map(({ value }) => value),
+            queries: qs,
+          };
+          const showIssues = (errors: ProjectIssue[]) => {
+            const mapped = errors.map((issue) => ({
+              ...issue,
+              field: issue.field.replace(
+                /^competitors\.(\d+)\./,
+                (_, index) => `competitors.${entered[Number(index)]?.index ?? index}.`,
+              ),
+            }));
+            setIssues(mapped);
+            if (mapped[0]) setStep(projectIssueStep(mapped[0]));
+          };
+          if (step === 1) {
+            const result = projectDetailsSchema.safeParse(data);
+            if (!result.success) return showIssues(projectIssues(result.error));
+            setName(result.data.name);
+            setDomain(result.data.domain);
+            setIndustry(result.data.industry);
+            setCountry(result.data.country);
+            setStep(2);
+          } else if (step === 2) {
+            const result = projectCompetitorsSchema.safeParse(data);
+            if (!result.success) return showIssues(projectIssues(result.error));
+            setCompetitors((rows) =>
+              rows.map((row, index) => {
+                const position = entered.findIndex((entry) => entry.index === index);
+                return position < 0 ? row : result.data.competitors[position];
+              }),
+            );
+            setStep(3);
+          } else {
+            const result = projectSchema.safeParse(data);
+            if (!result.success) return showIssues(projectIssues(result.error));
+            try {
+              await onSave(result.data);
+            } catch (error) {
+              if (error instanceof ApiError && error.issues.length) showIssues(error.issues);
+              else
+                setSaveError(
+                  friendly(error instanceof Error ? error.message : "internal_error", t),
+                );
+            }
+          }
         }}
       >
         <motion.div
@@ -106,8 +198,9 @@ export function ProjectWizard({
         >
           {step === 1 && (
             <>
-              <Field label={t("Nom de votre marque", "Your brand name")}>
+              <Field label={t("Nom de votre marque", "Your brand name")} error={fieldError("name")}>
                 <input
+                  data-project-field="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Karburo"
@@ -116,16 +209,37 @@ export function ProjectWizard({
                   maxLength={100}
                 />
               </Field>
-              <Field label={t("Domaine web", "Website domain")}>
+              <Field
+                label={t("Domaine web", "Website domain")}
+                error={fieldError("domain")}
+                hint={t(
+                  "Vous pouvez coller une adresse complète : seul le domaine sera conservé.",
+                  "You can paste a full website address: only the domain is saved.",
+                )}
+              >
                 <input
+                  data-project-field="domain"
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
-                  placeholder="votre-marque.fr"
+                  placeholder={t(
+                    "karburo.io ou https://karburo.io/fr-fr/",
+                    "karburo.io or https://karburo.io/en/",
+                  )}
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={2048}
+                  onBlur={() => {
+                    const normalized = normalizeWebsiteDomain(domain);
+                    if (normalized) setDomain(normalized);
+                  }}
                   required
                 />
               </Field>
-              <Field label={t("Secteur d’activité", "Industry")}>
+              <Field label={t("Secteur d’activité", "Industry")} error={fieldError("industry")}>
                 <input
+                  data-project-field="industry"
                   value={industry}
                   onChange={(e) => setIndustry(e.target.value)}
                   placeholder={t("Comparaison des prix des carburants", "Fuel price comparison")}
@@ -135,8 +249,12 @@ export function ProjectWizard({
                 />
               </Field>
               <div className="form-grid">
-                <Field label={t("Pays cible (contexte)", "Target country (context)")}>
+                <Field
+                  label={t("Pays cible (contexte)", "Target country (context)")}
+                  error={fieldError("country")}
+                >
                   <input
+                    data-project-field="country"
                     value={country}
                     onChange={(e) => setCountry(e.target.value.toUpperCase())}
                     pattern="[A-Z]{2}"
@@ -144,8 +262,15 @@ export function ProjectWizard({
                     required
                   />
                 </Field>
-                <Field label={t("Langue des réponses", "Response language")}>
-                  <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+                <Field
+                  label={t("Langue des réponses", "Response language")}
+                  error={fieldError("language")}
+                >
+                  <select
+                    data-project-field="language"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                  >
                     <option value="fr">Français</option>
                     <option value="en">English</option>
                   </select>
@@ -166,8 +291,9 @@ export function ProjectWizard({
                   <span className="section-kicker">
                     {t("CONCURRENT", "COMPETITOR")} 0{i + 1}
                   </span>
-                  <Field label={t("Nom", "Name")}>
+                  <Field label={t("Nom", "Name")} error={fieldError(`competitors.${i}.name`)}>
                     <input
+                      data-project-field={`competitors.${i}.name`}
                       value={c.name}
                       required={!!c.domain}
                       minLength={2}
@@ -179,11 +305,31 @@ export function ProjectWizard({
                       }
                     />
                   </Field>
-                  <Field label={t("Domaine", "Domain")}>
+                  <Field
+                    label={t("Domaine", "Domain")}
+                    error={fieldError(`competitors.${i}.domain`)}
+                    hint={t(
+                      "Domaine ou URL complète du site du concurrent.",
+                      "The competitor’s domain or full website address.",
+                    )}
+                  >
                     <input
+                      data-project-field={`competitors.${i}.domain`}
                       value={c.domain}
                       required={!!c.name}
                       placeholder="example.com"
+                      inputMode="url"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={2048}
+                      onBlur={() => {
+                        const normalized = normalizeWebsiteDomain(c.domain);
+                        if (normalized)
+                          setCompetitors((prev) =>
+                            prev.map((p, j) => (i === j ? { ...p, domain: normalized } : p)),
+                          );
+                      }}
                       onChange={(e) =>
                         setCompetitors((prev) =>
                           prev.map((p, j) => (i === j ? { ...p, domain: e.target.value } : p)),
@@ -208,6 +354,7 @@ export function ProjectWizard({
               </div>
               <Field
                 label={t("Questions à surveiller", "Questions to track")}
+                error={fieldError("queries")}
                 hint={t(
                   "Suggestions à adapter à vos clients. La marque n’est pas injectée dans les questions.",
                   "Adapt these suggestions to your customers. Your brand is not injected into the questions.",
@@ -215,6 +362,7 @@ export function ProjectWizard({
               >
                 <textarea
                   rows={10}
+                  data-project-field="queries"
                   value={questions}
                   onChange={(e) => setQuestions(e.target.value)}
                   required
@@ -229,11 +377,19 @@ export function ProjectWizard({
         </motion.div>
         <div className="modal-actions">
           {step > 1 && (
-            <Button type="button" variant="ghost" onClick={() => setStep(step - 1)}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                clearErrors();
+                setStep(step - 1);
+              }}
+            >
               {t("Retour", "Back")}
             </Button>
           )}
-          <Button disabled={busy || (step === 3 && (!qs.length || qs.length > 50))}>
+          <Button disabled={busy}>
             {step < 3 ? t("Continuer", "Continue") : t("Créer le projet", "Create project")}
             <ArrowRight size={15} />
           </Button>

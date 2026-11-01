@@ -4,7 +4,7 @@ import { sql, db } from "../db/client";
 import { eq, desc } from "drizzle-orm";
 import { projects as projectTable } from "../db/schema";
 import { AppError } from "./errors";
-import { digest, encryptSecret, safePublicUrl } from "./security";
+import { digest, encryptSecret } from "./security";
 import {
   MODELS,
   PROVIDERS,
@@ -29,38 +29,8 @@ import type {
   Citation,
   Snapshot,
 } from "./types";
-const domain = z
-  .string()
-  .trim()
-  .min(3)
-  .max(253)
-  .transform((s) =>
-    s
-      .replace(/^https?:\/\//, "")
-      .replace(/\/$/, "")
-      .toLowerCase(),
-  )
-  .refine(
-    (s) => !!safePublicUrl(`https://${s}`) && !s.includes("/") && !s.includes("?"),
-    "Invalid public domain",
-  );
-const name = z.string().trim().min(2).max(100);
-export const brandSchema = z.object({ name, domain });
-export const projectSchema = z
-  .object({
-    name,
-    domain,
-    industry: z.string().trim().min(2).max(120),
-    language: z.enum(["fr", "en"]),
-    country: z.string().regex(/^[A-Z]{2}$/),
-    competitors: z.array(brandSchema).max(10).default([]),
-    queries: z.array(z.string().trim().min(5).max(1000)).min(1).max(50),
-  })
-  .superRefine((p, ctx) => {
-    const names = [p.name, ...p.competitors.map((c) => c.name)].map((s) => s.toLowerCase());
-    if (new Set(names).size !== names.length || new Set(p.queries).size !== p.queries.length)
-      ctx.addIssue({ code: "custom", message: "Duplicates are not allowed" });
-  });
+import { projectSchema, ProjectValidationError } from "./project-validation";
+export { projectSchema, brandSchema } from "./project-validation";
 export const uuidSchema = z.uuid();
 export function ceilingMicros() {
   const n = Number(process.env.MAX_MONTHLY_BUDGET_USD ?? 20);
@@ -120,7 +90,9 @@ export async function getState(user: User): Promise<State> {
   };
 }
 export async function createProject(user: User, data: unknown) {
-  const p = projectSchema.parse(data);
+  const result = projectSchema.safeParse(data);
+  if (!result.success) throw new ProjectValidationError(result.error);
+  const p = result.data;
   return sql.begin(async (tx) => {
     await tx`select id from organizations where id=${user.org_id} for update`;
     const [count] = await tx`select count(*)::int as n from projects where org_id=${user.org_id}`;

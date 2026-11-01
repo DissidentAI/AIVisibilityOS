@@ -155,7 +155,11 @@ export function Workspace() {
     }, 8000);
     return () => clearInterval(timer);
   }, [state?.user.id, refresh, refreshRuns]);
-  async function act(action: () => Promise<unknown>, message?: string) {
+  async function act(
+    action: () => Promise<unknown>,
+    message?: string,
+    options?: { rethrow?: boolean },
+  ) {
     setBusy(true);
     setError("");
     setNotice("");
@@ -166,6 +170,7 @@ export function Workspace() {
       setModal(null);
       if (message) setNotice(message);
     } catch (e) {
+      if (options?.rethrow) throw e;
       setError(e instanceof Error ? e.message : "internal_error");
     } finally {
       setBusy(false);
@@ -1409,6 +1414,7 @@ export function Workspace() {
                   "Projet créé. Connectez vos clés API, puis lancez une mesure.",
                   "Project created. Connect your API keys, then run a measurement.",
                 ),
+                { rethrow: true },
               )
             }
           />

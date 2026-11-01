@@ -2821,3 +2821,15 @@ blockquote {
     scroll-behavior: auto !important;
   }
 }
+
+.field > .field-error {
+  color: var(--danger);
+  font-weight: 550;
+  white-space: pre-line;
+}
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+  outline-color: var(--danger);
+}

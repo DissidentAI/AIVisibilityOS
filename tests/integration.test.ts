@@ -80,6 +80,43 @@ async function route(
   );
 }
 describe("PostgreSQL integration, authorization and durable measurements", () => {
+  test("project API accepts copied page URLs and stores canonical domains", async () => {
+    const a = await owner();
+    const response = await route("POST", "projects", a.cookie, {
+      ...input,
+      domain: "HTTPS://KARBURO.EXAMPLE/fr-fr/?source=phone",
+      competitors: [
+        { name: "Karbu France", domain: "https://karbu-france.example/prix/" },
+        { name: "Gasoil Now", domain: "https://gasoil.example/fr/" },
+      ],
+    });
+    expect(response.status).toBe(201);
+    const state = await getState(a.user);
+    expect(state.projects).toHaveLength(1);
+    expect(state.projects[0].domain).toBe("karburo.example");
+    expect(state.projects[0].brands.map((brand) => brand.domain)).toEqual(
+      expect.arrayContaining(["karburo.example", "karbu-france.example", "gasoil.example"]),
+    );
+    expect(state.projects[0].queries).toHaveLength(10);
+  });
+  test("project API returns safe field errors without partial writes or anonymous access", async () => {
+    const a = await owner();
+    const invalid = {
+      ...input,
+      competitors: [
+        { name: "Karbu France", domain: "karbu-france.example" },
+        { name: "Gasoil Now", domain: "private-invalid-value" },
+      ],
+    };
+    const response = await route("POST", "projects", a.cookie, invalid);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_input",
+      issues: [{ field: "competitors.1.domain", code: "public_domain" }],
+    });
+    expect((await getState(a.user)).projects).toHaveLength(0);
+    expect((await route("POST", "projects", "", invalid)).status).toBe(401);
+  });
   test("first owner registration needs bootstrap and atomically closes registration", async () => {
     await expect(
       authenticate(
