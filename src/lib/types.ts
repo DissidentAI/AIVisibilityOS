@@ -1,7 +1,9 @@
 import type { Brand } from "./measurement";
 import type { Provider, Grounding } from "./providers";
 export type User = { id: string; org_id: string; email: string };
-export type Query = { id: string; text: string; project_id: string };
+export type Query = { id: string; text: string; project_id: string } & Partial<
+  import("./query-organization").QueryMetadata
+>;
 export type Project = {
   id: string;
   org_id: string;

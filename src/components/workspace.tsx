@@ -1,5 +1,16 @@
 "use client";
 import { TableScroll } from "./workspace/table-scroll";
+import {
+  evidenceHash,
+  readEvidenceHash,
+  proofTarget,
+  emptyEvidenceFilters,
+  type EvidenceFilters,
+  type EvidenceTarget,
+} from "@/lib/evidence-navigation";
+import { CopyLink } from "./workspace/copy-link";
+import { QueriesPanel } from "./workspace/queries-panel";
+import { CampaignTimeline } from "./workspace/campaign-timeline";
 import { translator, localeOf, intlLocale, type Locale } from "@/lib/i18n";
 import { QuestionDialog, CompetitorDialog } from "./workspace/question-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -128,6 +139,26 @@ export function Workspace() {
   const [credentialProvider, setCredentialProvider] = useState<Provider>("openai");
   const [brandScope, setBrandScope] = useState<BrandScope>("current");
   const [brandScopeAccount, setBrandScopeAccount] = useState("");
+  const [evidenceTarget, setEvidenceTarget] = useState<EvidenceTarget | null>(null);
+  const [proofFilters, setProofFilters] = useState<EvidenceFilters>(emptyEvidenceFilters);
+  useEffect(() => {
+    const restore = () => {
+      const target = readEvidenceHash(window.location.hash);
+      setEvidenceTarget(target);
+      setResponse(null);
+      if (!target) {
+        setProofFilters(emptyEvidenceFilters);
+        if (window.location.hash.startsWith("#evidence?")) setError("invalid_input");
+      }
+    };
+    restore();
+    window.addEventListener("hashchange", restore);
+    window.addEventListener("popstate", restore);
+    return () => {
+      window.removeEventListener("hashchange", restore);
+      window.removeEventListener("popstate", restore);
+    };
+  }, []);
   useEffect(() => {
     if (!state) return;
     const key = accountStorageKey("brand-scope", state.user);
@@ -138,6 +169,71 @@ export function Workspace() {
     if (state && brandScopeAccount === accountStorageKey("brand-scope", state.user))
       saveBrowserValue(brandScopeAccount, brandScope, brandScopeSchema);
   }, [brandScopeAccount, brandScope]);
+  useEffect(() => {
+    if (!state || !evidenceTarget) return;
+    if (!state.projects.some((p) => p.id === evidenceTarget.projectId)) {
+      setError("not_found");
+      return;
+    }
+    setProjectId(evidenceTarget.projectId);
+    setRunId(evidenceTarget.runId);
+    setBrandScope(evidenceTarget.scope);
+    setProofFilters(evidenceTarget.filters);
+    setTab("history");
+    setMobile(false);
+  }, [state?.user.id, evidenceTarget]);
+  useEffect(() => {
+    if (
+      !evidenceTarget?.responseId ||
+      !detail ||
+      detail.run.id !== evidenceTarget.runId ||
+      comparisonScope(detail) !== evidenceTarget.scope
+    )
+      return;
+    const found = allAttempts(detail).find((r) => r.id === evidenceTarget.responseId);
+    setResponse(found ?? null);
+    if (!found) setError("not_found");
+  }, [detail, evidenceTarget]);
+  function showEvidence(target: EvidenceTarget, replace = false) {
+    const url = new URL(window.location.href);
+    url.hash = evidenceHash(target);
+    window.history[replace ? "replaceState" : "pushState"](null, "", url);
+    setEvidenceTarget(target);
+    setResponse(null);
+  }
+  function clearEvidence() {
+    const url = new URL(window.location.href);
+    if (url.hash.startsWith("#evidence?")) {
+      url.hash = "";
+      window.history.replaceState(null, "", url);
+    }
+    setEvidenceTarget(null);
+    setProofFilters(emptyEvidenceFilters);
+    setResponse(null);
+  }
+  function openProof(r: ResponseRecord) {
+    if (!detail) return;
+    showEvidence({
+      ...proofTarget(detail.run.project_id, detail.run.id, comparisonScope(detail), proofFilters),
+      responseId: r.id,
+    });
+  }
+  function closeProof() {
+    setResponse(null);
+    if (evidenceTarget?.responseId) {
+      const { responseId: _responseId, ...target } = evidenceTarget;
+      showEvidence(target, true);
+    }
+  }
+  function showProofs(filters: Partial<EvidenceFilters>) {
+    if (detail)
+      showEvidence(
+        proofTarget(detail.run.project_id, detail.run.id, comparisonScope(detail), {
+          status: "succeeded",
+          ...filters,
+        }),
+      );
+  }
   const [returnToCampaign, setReturnToCampaign] = useState(false);
   const [retry, setRetry] = useState<{ detail: RunDetail; responseIds: string[] } | null>(null);
   const campaignPending = runs.some((r) => r.pending > 0);
@@ -148,13 +244,14 @@ export function Workspace() {
       return;
     }
     setError("");
-    setResponse(null);
+    closeProof();
     setRetry({ detail, responseIds: ids });
   }
   async function openRun(id: string) {
     try {
       // A retained child may outlive its source, and the selector lists only 100 runs.
       const d = await api<RunDetail>(`runs/${id}?brandScope=${brandScope}`);
+      clearEvidence();
       setRuns((rs) => (rs.some((r) => r.id === d.run.id) ? rs : [d.run, ...rs]));
       setRunId(d.run.id);
       setDetail(d);
@@ -630,6 +727,7 @@ export function Workspace() {
                 className={`nav-item ${tab === item.id ? "active" : ""} ${item.id === "settings" ? "nav-separated" : ""}`}
                 aria-current={tab === item.id ? "page" : undefined}
                 onClick={() => {
+                  clearEvidence();
                   setTab(item.id);
                   setMobile(false);
                 }}
@@ -779,6 +877,7 @@ export function Workspace() {
                   aria-label={t("Projet actif", "Active project")}
                   value={projectId}
                   onChange={(e) => {
+                    clearEvidence();
                     setProjectId(e.target.value);
                     setRunId("");
                   }}
@@ -863,7 +962,10 @@ export function Workspace() {
                         className="select-subtle"
                         aria-label={t("Campagne sélectionnée", "Selected campaign")}
                         value={detail?.run.id ?? ""}
-                        onChange={(e) => setRunId(e.target.value)}
+                        onChange={(e) => {
+                          clearEvidence();
+                          setRunId(e.target.value);
+                        }}
                       >
                         {!runs.length && (
                           <option value="">{t("Aucune mesure", "No measurements")}</option>
@@ -893,7 +995,10 @@ export function Workspace() {
                   {runs.length > 0 && !["queries", "schedules"].includes(tab) && (
                     <BrandScopeControl
                       scope={brandScope}
-                      onChange={setBrandScope}
+                      onChange={(scope) => {
+                        setBrandScope(scope);
+                        if (evidenceTarget) showEvidence({ ...evidenceTarget, scope }, true);
+                      }}
                       detail={detail}
                       t={t}
                     />
@@ -909,7 +1014,14 @@ export function Workspace() {
                     />
                   )}
                   {tab === "opportunities" && (
-                    <OpportunitiesPanel detail={detail} t={t} date={date} onOpen={setResponse} />
+                    <OpportunitiesPanel
+                      key={project.id}
+                      project={project}
+                      detail={detail}
+                      t={t}
+                      date={date}
+                      onOpen={openProof}
+                    />
                   )}
                   {tab === "schedules" && (
                     <SchedulesPanel
@@ -1034,7 +1146,11 @@ export function Workspace() {
                             </div>
                             <Users size={17} />
                           </div>
-                          <Comparison detail={detail} t={t} />
+                          <Comparison
+                            detail={detail}
+                            t={t}
+                            onProofs={(brandId) => showProofs({ brandId })}
+                          />
                         </section>
                       </div>
                       <section className="card">
@@ -1153,77 +1269,21 @@ export function Workspace() {
                     </>
                   )}
                   {tab === "queries" && (
-                    <section className="card">
-                      <div className="card-heading">
-                        <div>
-                          <h2>{t("Les questions de vos clients", "Your customers’ questions")}</h2>
-                          <p>
-                            {project.queries.length}/50{" "}
-                            {t("requêtes configurées", "configured queries")}
-                          </p>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={() => setModal("query")}>
-                          <Plus size={14} />
-                          {t("Ajouter", "Add")}
-                        </Button>
-                      </div>
-                      <TableScroll
-                        label={t("Requêtes suivies", "Tracked queries", "跟踪的问题")}
-                        t={t}
-                      >
-                        <table className="stacked-table">
-                          <thead>
-                            <tr>
-                              <th>{t("Requête", "Query")}</th>
-                              <th>{t("Échantillon valide", "Valid sample")}</th>
-                              <th>{t("Présence de la marque", "Brand presence")}</th>
-                              <th />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {project.queries.map((q) => {
-                              const rows = valid.filter((r) => r.query_text === q.text),
-                                ids = new Set(rows.map((r) => r.id)),
-                                n = new Set(
-                                  detail?.mentions
-                                    .filter(
-                                      (m) => ids.has(m.response_id) && m.brand_id === primary?.id,
-                                    )
-                                    .map((m) => m.response_id),
-                                ).size;
-                              return (
-                                <tr key={q.id}>
-                                  <td className="question-cell stacked-title">{q.text}</td>
-                                  <td data-label={t("Échantillon valide", "Valid sample")}>
-                                    {rows.length || "—"}
-                                  </td>
-                                  <td data-label={t("Présence de la marque", "Brand presence")}>
-                                    {rows.length ? `${n} / ${rows.length}` : "—"}
-                                  </td>
-                                  <td className="stacked-actions">
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      disabled={busy}
-                                      aria-label={t("Retirer la requête", "Remove query")}
-                                      onClick={() => act(() => api(`queries/${q.id}`, "DELETE"))}
-                                    >
-                                      <Trash2 size={14} />
-                                    </Button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </TableScroll>
-                      <div className="card-note">
-                        {t(
-                          "Les changements s’appliquent à la prochaine campagne. Les campagnes passées gardent leur configuration d’origine.",
-                          "Changes apply to the next campaign. Past campaigns retain their original configuration.",
-                        )}
-                      </div>
-                    </section>
+                    <QueriesPanel
+                      key={project.id}
+                      project={project}
+                      user={state.user}
+                      detail={detail}
+                      t={t}
+                      onAdd={() => setModal("query")}
+                      onRefresh={() => refresh()}
+                      onProofs={(queryId, brandId) =>
+                        showProofs({ queryId, brandId: brandId ?? "" })
+                      }
+                      onDelete={(id) => {
+                        void act(() => api(`queries/${id}`, "DELETE"));
+                      }}
+                    />
                   )}
                   {tab === "competitors" && (
                     <div className="analytics-grid">
@@ -1292,7 +1352,11 @@ export function Workspace() {
                             </p>
                           </div>
                         </div>
-                        <Comparison detail={detail} t={t} />
+                        <Comparison
+                          detail={detail}
+                          t={t}
+                          onProofs={(brandId) => showProofs({ brandId })}
+                        />
                       </section>
                     </div>
                   )}
@@ -1342,12 +1406,12 @@ export function Workspace() {
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      onClick={() =>
-                                        setResponse(
-                                          detail.responses.find((r) => r.id === c.response_id) ??
-                                            null,
-                                        )
-                                      }
+                                      onClick={() => {
+                                        const r = detail.responses.find(
+                                          (r) => r.id === c.response_id,
+                                        );
+                                        if (r) openProof(r);
+                                      }}
                                     >
                                       {t("Voir la réponse", "View response")}
                                     </Button>
@@ -1371,18 +1435,40 @@ export function Workspace() {
                     </section>
                   )}
                   {tab === "history" && (
-                    <HistoryPanel
-                      key={detail?.run.id ?? "empty"}
-                      detail={detail}
-                      t={t}
-                      date={date}
-                      status={status}
-                      onOpen={setResponse}
-                      onRetry={openRetry}
-                      onRun={openRun}
-                      onSettings={() => setTab("settings")}
-                      retryDisabled={campaignPending}
-                    />
+                    <>
+                      <CampaignTimeline
+                        detail={detail}
+                        runs={runs}
+                        t={t}
+                        date={date}
+                        onRun={openRun}
+                      />
+                      <HistoryPanel
+                        key={detail?.run.id ?? "empty"}
+                        detail={detail}
+                        t={t}
+                        date={date}
+                        status={status}
+                        onOpen={openProof}
+                        filters={proofFilters}
+                        onFilters={(filters) => {
+                          if (detail)
+                            showEvidence(
+                              proofTarget(
+                                detail.run.project_id,
+                                detail.run.id,
+                                comparisonScope(detail),
+                                filters,
+                              ),
+                              true,
+                            );
+                        }}
+                        onRetry={openRetry}
+                        onRun={openRun}
+                        onSettings={() => setTab("settings")}
+                        retryDisabled={campaignPending}
+                      />
+                    </>
                   )}
                 </>
               )}
@@ -1895,17 +1981,27 @@ export function Workspace() {
           </Modal>
         )}
         {response && (
-          <Modal
-            title={t("Preuve de mesure", "Measurement evidence")}
-            onClose={() => setResponse(null)}
-            wide
-          >
+          <Modal title={t("Preuve de mesure", "Measurement evidence")} onClose={closeProof} wide>
             <div className="evidence-meta">
               <span className="badge">{PROVIDER_LABELS[response.provider]} · API</span>
               <span className="badge">{status(response.status)}</span>
               <span className="mono muted">{response.returned_model || response.model}</span>
             </div>
             <h3>{response.query_text}</h3>
+            {detail && (
+              <CopyLink
+                t={t}
+                hash={evidenceHash({
+                  ...proofTarget(
+                    detail.run.project_id,
+                    detail.run.id,
+                    comparisonScope(detail),
+                    proofFilters,
+                  ),
+                  responseId: response.id,
+                })}
+              />
+            )}
             {response.provider === "openrouter" && (
               <p className="small muted">
                 {t("Fournisseur d’exécution", "Serving provider")} :{" "}

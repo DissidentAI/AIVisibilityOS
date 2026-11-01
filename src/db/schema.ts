@@ -3,6 +3,7 @@ import {
   uuid,
   text,
   timestamp,
+  date,
   integer,
   jsonb,
   boolean,
@@ -143,6 +144,9 @@ export const queries = pgTable(
     orgId: uuid("org_id").notNull(),
     projectId: uuid("project_id").notNull(),
     text: text("text").notNull(),
+    theme: text("theme").notNull().default(""),
+    intent: text("intent").notNull().default("unspecified"),
+    priority: text("priority").notNull().default("normal"),
     createdAt: created(),
   },
   (t) => [
@@ -151,6 +155,63 @@ export const queries = pgTable(
       foreignColumns: [projects.id, projects.orgId],
     }).onDelete("cascade"),
     unique("query_text_unique").on(t.projectId, t.text),
+    check(
+      "query_intent_valid",
+      schemaSql`${t.intent} in ('unspecified','discovery','comparison','purchase','support')`,
+    ),
+    check("query_priority_valid", schemaSql`${t.priority} in ('low','normal','high')`),
+  ],
+);
+
+export const queryViews = pgTable(
+  "query_views",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    name: text("name").notNull(),
+    filters: jsonb("filters").notNull(),
+    createdAt: created(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.orgId],
+      foreignColumns: [projects.id, projects.orgId],
+    }).onDelete("cascade"),
+    unique("query_view_name_unique").on(t.projectId, t.name),
+    index("query_views_project_idx").on(t.orgId, t.projectId),
+  ],
+);
+
+export const geoActions = pgTable(
+  "geo_actions",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    requestId: uuid("request_id").notNull(),
+    title: text("title").notNull(),
+    status: text("status").notNull().default("to_review"),
+    owner: text("owner").notNull().default(""),
+    dueDate: date("due_date"),
+    targetUrl: text("target_url").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    evidence: jsonb("evidence").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: created(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.projectId, t.orgId],
+      foreignColumns: [projects.id, projects.orgId],
+    }).onDelete("cascade"),
+    unique("geo_action_request_unique").on(t.orgId, t.requestId),
+    index("geo_actions_project_idx").on(t.orgId, t.projectId, t.createdAt),
+    check(
+      "geo_action_status_valid",
+      schemaSql`${t.status} in ('to_review','planned','in_progress','published')`,
+    ),
   ],
 );
 export const runs = pgTable(

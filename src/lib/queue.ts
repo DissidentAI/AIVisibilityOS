@@ -242,6 +242,7 @@ export async function maintenance() {
       throw new Error("invalid_retention_days");
     await tx`delete from assistant_jobs where status not in ('queued','running') and created_at<now()-${Math.min(30, days)}*interval '1 day'`;
     await tx`delete from reports where created_at < now() - ${days} * interval '1 day'`;
+    await tx`delete from geo_actions where created_at < now() - ${days} * interval '1 day'`;
     await tx`delete from schedule_events where created_at < now() - ${days} * interval '1 day'`;
     // Retain usage accounting separately; queued/running jobs are never purged.
     await tx`delete from measurement_runs r where r.campaign_id is null and r.created_at<now()-${days}*interval '1 day'

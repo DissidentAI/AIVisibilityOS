@@ -16,6 +16,7 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 
 ## Ce qui fonctionne
 
+- Liens privés vers les preuves depuis une marque ou une question, classement des questions par thème/intention/priorité avec vues enregistrées, actions GEO avec preuves archivées et historique paginé expliquant ses exclusions. [Mode d’emploi FR / EN](docs/EVIDENCE-WORKFLOWS.md).
 - Compte propriétaire, sessions sécurisées et onboarding français/anglais/chinois simplifié.
 - Plusieurs projets, marque principale, jusqu’à cinquante concurrents et cinquante questions par projet.
 - Nouveaux concurrents comparables aux réponses déjà collectées, sans appel IA : réanalyse locale des noms/domaines, vue d’origine conservée et exports identifiant le périmètre. [Mode d’emploi](docs/PLANNING-AND-REPORTS.md).

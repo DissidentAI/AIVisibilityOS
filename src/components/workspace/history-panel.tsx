@@ -1,6 +1,15 @@
 "use client";
 import { TableScroll } from "./table-scroll";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { comparisonBrands, comparisonScope } from "@/lib/brand-analysis";
+import {
+  evidenceRows,
+  evidenceHash,
+  proofTarget,
+  emptyEvidenceFilters,
+  type EvidenceFilters,
+} from "@/lib/evidence-navigation";
+import { CopyLink } from "./copy-link";
 import { ArrowRight, ChevronLeft, ChevronRight, RotateCcw, Search } from "lucide-react";
 import type { RunDetail, ResponseRecord } from "@/lib/types";
 import { PROVIDER_LABELS } from "@/lib/provider-config";
@@ -18,6 +27,8 @@ export function HistoryPanel({
   onRun,
   onSettings,
   retryDisabled = false,
+  filters,
+  onFilters,
 }: {
   detail: RunDetail | null;
   t: Translate;
@@ -28,25 +39,18 @@ export function HistoryPanel({
   onRun: (id: string) => void;
   onSettings: () => void;
   retryDisabled?: boolean;
+  filters: EvidenceFilters;
+  onFilters: (filters: EvidenceFilters) => void;
 }) {
-  const [search, setSearch] = useState("");
-  const [provider, setProvider] = useState("all");
-  const [state, setState] = useState("all");
+  const { search, provider, status: state } = filters;
+  const setSearch = (search: string) => onFilters({ ...filters, search });
+  const setProvider = (provider: string) =>
+    onFilters({ ...filters, provider: provider as EvidenceFilters["provider"] });
+  const setState = (status: string) =>
+    onFilters({ ...filters, status: status as EvidenceFilters["status"] });
   const [page, setPage] = useState(0);
-  const rows = (detail?.responses ?? []).filter(
-    (r) =>
-      (!search.trim() ||
-        `${r.query_text} ${r.model} ${r.error_code ?? ""}`
-          .toLocaleLowerCase()
-          .includes(search.trim().toLocaleLowerCase())) &&
-      (provider === "all" || r.provider === provider) &&
-      (state === "all" ||
-        (state === "failed"
-          ? failedStatuses.includes(r.status)
-          : state === "pending"
-            ? ["queued", "running"].includes(r.status)
-            : r.status === state)),
-  );
+  useEffect(() => setPage(0), [filters]);
+  const rows = detail ? evidenceRows(detail, filters) : [];
   const eligible = rows.filter(canRetry);
   const pageCount = Math.max(1, Math.ceil(rows.length / 25));
   const currentPage = Math.min(page, pageCount - 1);
@@ -83,10 +87,64 @@ export function HistoryPanel({
         </Empty>
       ) : (
         <>
+          <div className="proof-context">
+            <Field label={t("Marque mentionnée", "Mentioned brand", "提及的品牌")}>
+              <select
+                value={filters.brandId}
+                onChange={(e) => onFilters({ ...filters, brandId: e.target.value })}
+              >
+                <option value="">{t("Toutes les marques", "All brands", "所有品牌")}</option>
+                {comparisonBrands(detail).map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+                {filters.brandId &&
+                  !comparisonBrands(detail).some((b) => b.id === filters.brandId) && (
+                    <option value={filters.brandId}>
+                      {t(
+                        "Marque indisponible dans ce périmètre",
+                        "Brand unavailable in this scope",
+                        "此范围内无该品牌",
+                      )}
+                    </option>
+                  )}
+              </select>
+            </Field>
+            <Field label={t("Question exacte", "Exact question", "确切问题")}>
+              <select
+                value={filters.queryId}
+                onChange={(e) => onFilters({ ...filters, queryId: e.target.value })}
+              >
+                <option value="">{t("Toutes les questions", "All questions", "所有问题")}</option>
+                {detail.run.snapshot.queries.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    {q.text}
+                  </option>
+                ))}
+                {filters.queryId &&
+                  !detail.run.snapshot.queries.some((q) => q.id === filters.queryId) && (
+                    <option value={filters.queryId}>
+                      {t("Question non mesurée", "Question not measured", "未测量的问题")}
+                    </option>
+                  )}
+              </select>
+            </Field>
+          </div>
+          {filters.brandId && (
+            <p className="small muted">
+              {t(
+                "Seules les réponses valides mentionnant explicitement cette marque sont affichées.",
+                "Only valid answers explicitly mentioning this brand are shown.",
+                "仅显示明确提及此品牌的有效回答。",
+              )}
+            </p>
+          )}
           <div className="history-filters">
             <Field label={t("Rechercher dans les réponses", "Search responses")}>
               <input
                 type="search"
+                maxLength={200}
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -158,6 +216,17 @@ export function HistoryPanel({
               {rows.length} / {detail.responses.length}{" "}
               {t("réponses affichées", "matching responses")}
             </span>
+            <CopyLink
+              hash={evidenceHash(
+                proofTarget(detail.run.project_id, detail.run.id, comparisonScope(detail), filters),
+              )}
+              t={t}
+            />
+            {rows.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={() => onFilters(emptyEvidenceFilters)}>
+                {t("Effacer les filtres", "Clear filters", "清除筛选条件")}
+              </Button>
+            )}
             {eligible.length > 0 && (
               <Button
                 variant="outline"
@@ -186,9 +255,7 @@ export function HistoryPanel({
               <Button
                 variant="ghost"
                 onClick={() => {
-                  setSearch("");
-                  setProvider("all");
-                  setState("all");
+                  onFilters(emptyEvidenceFilters);
                   setPage(0);
                 }}
               >

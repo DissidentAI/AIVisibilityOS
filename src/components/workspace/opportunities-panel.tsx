@@ -1,5 +1,7 @@
 import { ArrowUpRight, Lightbulb } from "lucide-react";
-import type { RunDetail, ResponseRecord } from "@/lib/types";
+import { useState } from "react";
+import type { RunDetail, ResponseRecord, Project } from "@/lib/types";
+import { GeoActionsPanel } from "./geo-actions-panel";
 import { editorialOpportunities } from "@/lib/run-insights";
 import { PROVIDER_LABELS } from "@/lib/provider-config";
 import { Button } from "../ui/button";
@@ -10,15 +12,26 @@ export function OpportunitiesPanel({
   t,
   onOpen,
   date,
+  project,
 }: {
   detail: RunDetail | null;
   t: Translate;
   onOpen: (r: ResponseRecord) => void;
   date: (s: string) => string;
+  project: Project;
 }) {
+  const [draftQueryId, setDraftQueryId] = useState<string | null>(null);
   const leads = detail ? editorialOpportunities(detail) : [];
   return (
     <section className="opportunities-panel">
+      <GeoActionsPanel
+        project={project}
+        detail={detail}
+        t={t}
+        date={date}
+        draftQueryId={draftQueryId}
+        onDraftClose={() => setDraftQueryId(null)}
+      />
       <div className="editorial-intro">
         <span className="section-kicker">
           {t("DES PREUVES AUX ACTIONS", "FROM EVIDENCE TO ACTION")}
@@ -57,6 +70,17 @@ export function OpportunitiesPanel({
             <div className="opportunity-number">{String(index + 1).padStart(2, "0")}</div>
             <div className="opportunity-content">
               <h3>{lead.query}</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setDraftQueryId(
+                    detail?.run.snapshot.queries.find((q) => q.text === lead.query)?.id ?? null,
+                  )
+                }
+              >
+                {t("Suivre cette opportunité", "Track this opportunity", "跟踪此机会")}
+              </Button>
               <dl>
                 <div>
                   <dt>{t("Fait observé", "Observed fact")}</dt>

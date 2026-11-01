@@ -163,6 +163,29 @@ export const money = (n: number) =>
     maximumFractionDigits: 4,
   }).format(n / 1e6);
 export function friendly(code: string, t: Translate) {
+  const workflowErrors: Record<string, [string, string, string]> = {
+    action_changed: [
+      "Cette action a été modifiée ailleurs. Fermez puis rouvrez-la avant d’enregistrer.",
+      "This action changed elsewhere. Close and reopen it before saving.",
+      "此行动已在其他地方修改。请关闭并重新打开后保存。",
+    ],
+    action_evidence_required: [
+      "Cette question doit disposer d’au moins une réponse valide pour créer une action.",
+      "This question needs at least one valid answer before creating an action.",
+      "创建行动前，此问题需要至少一条有效回答。",
+    ],
+    geo_action_limit: [
+      "Ce projet contient déjà 200 actions. Retirez une action terminée pour en créer une autre.",
+      "This project already has 200 actions. Remove a completed action to create another.",
+      "此项目已有 200 项行动。请删除一项已完成的行动后再创建。",
+    ],
+    query_view_limit: [
+      "Ce projet contient déjà 20 vues. Retirez une vue ou réutilisez son nom pour la mettre à jour.",
+      "This project already has 20 views. Remove one or reuse its name to update it.",
+      "此项目已有 20 个视图。请删除一个或使用已有名称更新。",
+    ],
+  };
+  if (workflowErrors[code]) return t(...workflowErrors[code]);
   const provider = PROVIDERS.find((p) => code.endsWith(`_${p}`));
   if (provider && code.startsWith("provider_auth_rejected_"))
     return provider === "kimi"

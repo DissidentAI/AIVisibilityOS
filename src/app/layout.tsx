@@ -7,6 +7,7 @@ import "./answers.css";
 import "./audits.css";
 import "./planning.css";
 import "./responsive.css";
+import "./workflows.css";
 export const metadata: Metadata = {
   title: "AI Visibility OS",
   description:

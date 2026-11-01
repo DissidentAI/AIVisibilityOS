@@ -1,4 +1,18 @@
 import { requestSuggestions, getSuggestions } from "@/lib/suggestions";
+import {
+  organizeQueries,
+  listQueryViews,
+  saveQueryView,
+  deleteQueryView,
+} from "@/lib/query-organization-service";
+import {
+  listGeoActions,
+  getGeoAction,
+  createGeoAction,
+  updateGeoAction,
+  deleteGeoAction,
+} from "@/lib/geo-actions-service";
+import { getCampaignHistory } from "@/lib/history-service";
 import { updateProject, saveScanSettings, addQuestions } from "@/lib/project-settings";
 import { z } from "zod";
 import { brandScopeSchema, comparisonBrands, comparisonScope } from "@/lib/brand-analysis";
@@ -92,6 +106,34 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       return json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", true) });
     }
     if (route === "state" && method === "GET") return json(await getState(user));
+    if (path[0] === "projects" && path[1] && path.length === 3) {
+      if (path[2] === "query-organization" && method === "POST")
+        return json(await organizeQueries(user, path[1], await body(request)));
+      if (path[2] === "query-views") {
+        if (method === "GET") return json(await listQueryViews(user, path[1]));
+        if (method === "POST")
+          return json(await saveQueryView(user, path[1], await body(request)), 201);
+      }
+      if (path[2] === "actions") {
+        if (method === "GET") return json(await listGeoActions(user, path[1]));
+        if (method === "POST")
+          return json(await createGeoAction(user, path[1], await body(request)), 201);
+      }
+      if (path[2] === "history" && method === "GET")
+        return json(await getCampaignHistory(user, path[1], Object.fromEntries(url.searchParams)));
+    }
+    if (path[0] === "query-views" && path.length === 2 && method === "DELETE") {
+      await deleteQueryView(user, path[1]);
+      return json({ ok: true });
+    }
+    if (path[0] === "actions" && path.length === 2) {
+      if (method === "GET") return json(await getGeoAction(user, path[1]));
+      if (method === "POST") return json(await updateGeoAction(user, path[1], await body(request)));
+      if (method === "DELETE") {
+        await deleteGeoAction(user, path[1], await body(request));
+        return json({ ok: true });
+      }
+    }
     if (route === "audits" && method === "GET")
       return json(await listAudits(user, url.searchParams.get("project") ?? ""));
     if (route === "audits" && method === "POST")
@@ -405,6 +447,8 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       const auditSites = await sql`select * from audit_sites where org_id=${user.org_id}`;
       const auditPages = await sql`select * from audit_pages where org_id=${user.org_id}`;
       const suggestions = await sql`select * from assistant_jobs where org_id=${user.org_id}`;
+      const queryViews = await sql`select * from query_views where org_id=${user.org_id}`;
+      const geoActions = await sql`select * from geo_actions where org_id=${user.org_id}`;
       const auditAnalyses = await sql`select * from audit_ai_jobs where org_id=${user.org_id}`;
       return json(
         {
@@ -424,6 +468,8 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           auditPages,
           auditAnalyses,
           suggestions,
+          queryViews,
+          geoActions,
         },
         200,
         {

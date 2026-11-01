@@ -72,7 +72,7 @@ export async function getState(user: User): Promise<State> {
     >`select id, project_id, name, domain, is_primary from brands where org_id=${user.org_id} order by is_primary desc, name`,
     sql<
       Query[]
-    >`select id, project_id, text from tracked_queries where org_id=${user.org_id} order by created_at, id`,
+    >`select id, project_id, text, theme, intent, priority from tracked_queries where org_id=${user.org_id} order by created_at, id`,
     sql<
       { provider: Provider; updated_at: string }[]
     >`select provider, updated_at from credentials where org_id=${user.org_id}`,
@@ -434,10 +434,10 @@ export async function getRun(
     where coalesce(parent.campaign_id,parent.id)=${run.id} and a.org_id=${user.org_id} order by a.query_text,a.provider,a.sample,a.attempt desc`,
     sql<
       Mention[]
-    >`select m.* from brand_mentions m join ai_responses a on a.id=m.response_id and a.org_id=m.org_id join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where coalesce(r.campaign_id,r.id)=${run.id} and m.org_id=${user.org_id}`,
+    >`select m.* from brand_mentions m join ai_responses a on a.id=m.response_id and a.org_id=m.org_id join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where coalesce(r.campaign_id,r.id)=${run.id} and m.org_id=${user.org_id} order by m.response_id,m.brand_id,m.id`,
     sql<
       Citation[]
-    >`select c.* from citations c join ai_responses a on a.id=c.response_id and a.org_id=c.org_id join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where coalesce(r.campaign_id,r.id)=${run.id} and c.org_id=${user.org_id}`,
+    >`select c.* from citations c join ai_responses a on a.id=c.response_id and a.org_id=c.org_id join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where coalesce(r.campaign_id,r.id)=${run.id} and c.org_id=${user.org_id} order by c.response_id,c.url,c.id`,
   ]);
   const { current, previous } = latestAttempts(responses);
   const ids = new Set(current.map((r) => r.id));

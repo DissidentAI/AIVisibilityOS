@@ -9,6 +9,25 @@ export class ApiError extends Error {
 }
 export const isAborted = (error: unknown) => error instanceof Error && error.name === "AbortError";
 
+// A component effect can run after pagehide during a WebKit reload. Remember the
+// document lifecycle even after all earlier reads have finished; pageshow restores bfcache use.
+const lifecycles = new WeakMap<EventTarget, { leaving: boolean }>();
+function lifecycle(page: EventTarget) {
+  let state = lifecycles.get(page);
+  if (!state) {
+    state = { leaving: false };
+    const current = state;
+    page.addEventListener("pagehide", () => {
+      current.leaving = true;
+    });
+    page.addEventListener("pageshow", () => {
+      current.leaving = false;
+    });
+    lifecycles.set(page, state);
+  }
+  return state;
+}
+
 /** Read requests belong to the current page. Never cancel or retry a mutation on navigation. */
 export async function api<T>(
   path: string,
@@ -19,11 +38,22 @@ export async function api<T>(
   const controller = new AbortController();
   const abort = () => controller.abort();
   const read = method === "GET";
+  const page = typeof window !== "undefined" ? window : null;
+  const state = page ? lifecycle(page) : null;
+  const leave = () => {
+    if (state) state.leaving = true;
+    abort();
+  };
   if (signal?.aborted) abort();
   else signal?.addEventListener("abort", abort, { once: true });
-  if (read && typeof window !== "undefined")
-    window.addEventListener("pagehide", abort, { once: true });
+  if (read && page) {
+    if (state?.leaving) abort();
+    page.addEventListener("pagehide", leave, { once: true });
+    // Only while a read is pending. No prompt, no global unload listener or mutation replay.
+    page.addEventListener("beforeunload", leave, { once: true });
+  }
   try {
+    controller.signal.throwIfAborted();
     const res = await fetch(`/api/${path}`, {
       method,
       signal: controller.signal,
@@ -47,6 +77,9 @@ export async function api<T>(
     throw new ApiError("network_unavailable");
   } finally {
     signal?.removeEventListener("abort", abort);
-    if (read && typeof window !== "undefined") window.removeEventListener("pagehide", abort);
+    if (read && page) {
+      page.removeEventListener("pagehide", leave);
+      page.removeEventListener("beforeunload", leave);
+    }
   }
 }

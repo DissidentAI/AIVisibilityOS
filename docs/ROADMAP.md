@@ -1,6 +1,6 @@
 # Périmètre livré et suites
 
-Priorités issues du [dernier audit produit et responsive](AUDIT-PRODUIT-UX-2026-11-01.md) : accès direct aux preuves, organisation des questions, suivi des actions et historique navigable.
+Les quatre priorités du [dernier audit produit et responsive](AUDIT-PRODUIT-UX-2026-11-01.md) sont livrées : liens privés vers les preuves, questions par thème avec vues enregistrées, actions GEO avec preuves archivées, historique paginé avec motifs d’exclusion. Voir [le mode d’emploi](EVIDENCE-WORKFLOWS.md).
 
 ## Phase 1 — Community MVP
 
@@ -17,7 +17,7 @@ Implémentés : structure Next.js, migrations PostgreSQL/Drizzle, propriétaire 
 ### Suites non livrées
 
 - Alertes : événements d’exécution, budget et changements ; seuil minimum d’échantillon, comparaison homogène, intervalle d’incertitude et période anti-duplication. Ne pas appeler « baisse significative » une simple différence.
-- Suivi des actions issues de l’audit : persistance des tâches, validation humaine et évolution des constats. L’audit public borné, protégé contre SSRF et complété par une synthèse IA facultative est livré ; voir [SITE-AUDIT.md](SITE-AUDIT.md).
+- Extension du suivi des actions aux constats techniques du crawl, puis comparaison documentée après publication. Le suivi des actions issues des questions mesurées est livré ; l’audit public borné et sa synthèse IA facultative sont également disponibles, voir [SITE-AUDIT.md](SITE-AUDIT.md).
 - Sentiment : classification avec extraits vérifiables, incertitude et corrections humaines ; corpus d’évaluation français/anglais avant score produit.
 - Espaces clients/membres/rôles : matrice de permissions serveur, tests adversariaux, audit indépendant et éventuellement PostgreSQL RLS avant ouverture.
 

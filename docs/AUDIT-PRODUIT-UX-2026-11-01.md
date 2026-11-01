@@ -2,6 +2,8 @@
 
 Date : 1er novembre 2026. État de départ : `fee13dc` ; corrections de cette livraison décrites ci-dessous.
 
+> Mise à jour : les quatre premières priorités de cet audit ont été implémentées. Voir [les parcours livrés et leurs limites](EVIDENCE-WORKFLOWS.md). Les constats ci-dessous décrivent l’état au moment de l’audit.
+
 ## Décision proposée
 
 Le produit possède déjà un parcours Community exploitable : configurer un projet, collecter des réponses, comparer les marques, vérifier les preuves, reprendre les échecs, auditer des pages et produire un rapport. La prochaine valeur à développer pour une agence est **le passage d’un constat vérifiable à une action suivie**, avec une restitution client facile à comprendre.

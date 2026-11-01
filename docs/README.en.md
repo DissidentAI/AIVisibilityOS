@@ -4,6 +4,10 @@ Self-hosted AI visibility measurement with auditable evidence. It measures expli
 
 The usable slice includes owner registration, encrypted credentials, projects and competitors, tracked queries, OpenAI/Gemini/Kimi/OpenRouter and **direct Xiaomi MiMo adapters using your Xiaomi API key**, a durable PostgreSQL queue, spending reservations, response evidence, charts, historical comparisons and CSV export. Project drafts and campaign preferences persist per account in the same browser, excluding secrets. See [provider profiles, costs and browser persistence](PROVIDERS.md). French/English/Simplified Chinese and light/dark modes are included. No production demo responses are generated.
 
+## Evidence to action
+
+Brand/question drill-down links, saved question themes/intents/priorities, GEO action tracking with immutable baseline evidence, and paginated history with explicit comparison exclusions are available. These workflows reuse saved responses without new AI calls. [User guide and limits](EVIDENCE-WORKFLOWS.md).
+
 ## Retry and review
 
 Failed, invalid and interrupted responses can be retried individually or together from **History & exports**, with a cost preview and an explicit confirmation. Retries remain in the same canonical campaign, preserve previous attempts and costs, and never repeat successful responses. Duplicate launches are blocked. Retry samples are excluded from automatic historical comparisons. History has search, provider/status filters, incident explanations and mobile cards. **GEO opportunities** separates observed mention gaps, hypotheses and suggested editorial actions, with direct access to evidence. It does not crawl your website or establish causation. See the [product audit](AUDIT-2026-11-01.md).

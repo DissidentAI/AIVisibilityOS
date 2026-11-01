@@ -3,6 +3,37 @@ import { api, ApiError } from "../src/lib/client-api";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("browser API request lifecycle", () => {
+  it("never starts a late read after pagehide and resumes after pageshow", async () => {
+    const page = new EventTarget();
+    vi.stubGlobal("window", page);
+    const fetch = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetch);
+    await api("state");
+    page.dispatchEvent(new Event("pagehide"));
+    await expect(api("runs")).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    page.dispatchEvent(new Event("pageshow"));
+    expect(await api("state")).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("cancels pending reads at beforeunload without launching later effects", async () => {
+    const page = new EventTarget();
+    vi.stubGlobal("window", page);
+    const fetch = vi.fn(
+      (_url, options) =>
+        new Promise((_resolve, reject) =>
+          options.signal.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          ),
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const first = expect(api("runs")).rejects.toMatchObject({ name: "AbortError" });
+    page.dispatchEvent(new Event("beforeunload"));
+    await first;
+    await expect(api("state")).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("cancels reads on page exit without an automatic retry", async () => {
     const page = new EventTarget();
     vi.stubGlobal("window", page);
