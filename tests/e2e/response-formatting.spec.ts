@@ -28,6 +28,9 @@ async function login(page: Page) {
   await expect(page.getByRole("heading", { name: "Vue d’ensemble", exact: true })).toBeVisible();
 }
 async function navigate(page: Page, name: string) {
+  // After reload the authenticated shell mounts asynchronously. Checking the
+  // absent Menu immediately mistakes a still-loading phone layout for desktop.
+  await expect(page.locator(".main-shell")).toBeVisible();
   const menu = page.getByRole("button", { name: "Menu", exact: true });
   if (await menu.isVisible()) await menu.click();
   await page.getByRole("button", { name, exact: true }).click();

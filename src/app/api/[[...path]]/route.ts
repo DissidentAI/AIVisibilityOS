@@ -25,6 +25,14 @@ import { renderReport } from "@/lib/report-pdf";
 import { PROVIDERS } from "@/lib/providers";
 import { createRetry, estimateRetry } from "@/lib/retries";
 import { saveExecutionPolicy } from "@/lib/execution-control";
+import {
+  createAudit,
+  getAudit,
+  listAudits,
+  cancelAudit,
+  estimateAuditAI,
+  createAuditAI,
+} from "@/lib/site-audit/service";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function body(request: Request, maxBytes = 100_000) {
@@ -79,6 +87,60 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       return json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", true) });
     }
     if (route === "state" && method === "GET") return json(await getState(user));
+    if (route === "audits" && method === "GET")
+      return json(await listAudits(user, url.searchParams.get("project") ?? ""));
+    if (route === "audits" && method === "POST")
+      return json(await createAudit(user, await body(request)), 201);
+    if (path[0] === "audits" && path[1]) {
+      if (
+        method === "GET" &&
+        (path.length === 2 || (path.length === 3 && ["export", "csv"].includes(path[2])))
+      ) {
+        const audit = await getAudit(user, path[1]);
+        if (path[2] === "csv")
+          return new Response(
+            toCsv(
+              audit.pages.map((p) => ({
+                audit_id: audit.audit.id,
+                version: audit.audit.version,
+                site: audit.sites.find((s) => s.id === p.site_id)?.target,
+                ...p,
+                currency: "USD",
+                limitations:
+                  "Static public HTML; bounded crawl; no JavaScript or ranking measurement",
+              })),
+            ),
+            {
+              headers: {
+                "Content-Type": "text/csv; charset=utf-8",
+                "Cache-Control": "no-store",
+                "Content-Disposition": `attachment; filename="site-audit-${audit.audit.id}.csv"`,
+              },
+            },
+          );
+        return json(
+          audit,
+          200,
+          path[2] === "export"
+            ? { "Content-Disposition": `attachment; filename="site-audit-${audit.audit.id}.json"` }
+            : {},
+        );
+      }
+      if (method === "POST" && path.length === 3 && path[2] === "cancel") {
+        await cancelAudit(user, path[1]);
+        return json({ ok: true });
+      }
+      if (
+        method === "POST" &&
+        path[2] === "ai" &&
+        (path.length === 3 || (path.length === 4 && path[3] === "estimate"))
+      ) {
+        const data = await body(request);
+        return path[3] === "estimate"
+          ? json(await estimateAuditAI(user, path[1], data))
+          : json(await createAuditAI(user, path[1], data), 201);
+      }
+    }
     if (route === "execution/limits" && method === "POST") {
       await saveExecutionPolicy(user, await body(request));
       return json({ ok: true });
@@ -93,6 +155,11 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
         const [pending] =
           await tx`select count(*)::int as n from ai_responses a join measurement_runs r on r.id=a.run_id where r.project_id=${path[1]} and a.org_id=${user.org_id} and a.status in ('queued','running')`;
         if (pending.n) throw new AppError("campaign_already_running", 409);
+        const [auditPending] =
+          await tx`select 1 from site_audits a where a.project_id=${path[1]} and a.org_id=${user.org_id} and (
+          exists(select 1 from audit_sites s where s.audit_id=a.id and s.status in ('queued','running')) or
+          exists(select 1 from audit_ai_jobs j where j.audit_id=a.id and j.status in ('queued','running'))) limit 1`;
+        if (auditPending) throw new AppError("audit_already_running", 409);
         await tx`delete from projects where id=${path[1]} and org_id=${user.org_id}`;
       });
       return json({ ok: true });
@@ -281,6 +348,10 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       const scheduleEvents = await sql`select * from schedule_events where org_id=${user.org_id}`;
       const reports = await sql`select * from reports where org_id=${user.org_id}`;
       const branding = await getBranding(user);
+      const audits = await sql`select * from site_audits where org_id=${user.org_id}`;
+      const auditSites = await sql`select * from audit_sites where org_id=${user.org_id}`;
+      const auditPages = await sql`select * from audit_pages where org_id=${user.org_id}`;
+      const auditAnalyses = await sql`select * from audit_ai_jobs where org_id=${user.org_id}`;
       return json(
         {
           ...state,
@@ -294,6 +365,10 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           scheduleEvents,
           reports,
           branding,
+          audits,
+          auditSites,
+          auditPages,
+          auditAnalyses,
         },
         200,
         {
@@ -315,6 +390,9 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
         const [pending] =
           await tx`select count(*)::int as n from ai_responses where org_id=${user.org_id} and status in ('queued','running')`;
         if (pending.n) throw new AppError("campaign_already_running", 409);
+        const [auditPending] =
+          await tx`select 1 where exists(select 1 from audit_sites where org_id=${user.org_id} and status in ('queued','running')) or exists(select 1 from audit_ai_jobs where org_id=${user.org_id} and status in ('queued','running'))`;
+        if (auditPending) throw new AppError("audit_already_running", 409);
         await tx`delete from organizations where id=${user.org_id}`;
       });
       return json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", true) });

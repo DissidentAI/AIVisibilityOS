@@ -50,6 +50,20 @@
       "when": 1793502778453,
       "tag": "0006_stiff_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793504534782,
+      "tag": "0007_wet_virginia_dare",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793504851795,
+      "tag": "0008_tan_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

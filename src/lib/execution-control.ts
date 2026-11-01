@@ -1,4 +1,5 @@
 import { sql } from "../db/client";
+import { apiWork, jobTable, usageColumn } from "./api-work";
 import { modelConfiguration } from "./provider-config";
 import { AppError } from "./errors";
 import type { Job } from "./queue";
@@ -72,7 +73,7 @@ export async function getExecutionStatus(user: User): Promise<ExecutionStatus[]>
   const [rows, pauses, active] = await Promise.all([
     sql<LimitRow[]>`select * from model_execution_limits where org_id=${user.org_id}`,
     sql`select provider,paused_until from provider_cooldowns where org_id=${user.org_id} and paused_until>now()`,
-    sql`select provider,model,count(*)::int as n from ai_responses where org_id=${user.org_id} and status='running' group by provider,model`,
+    sql`select provider,model,count(*)::int as n from ${apiWork(sql)} a where org_id=${user.org_id} and status='running' group by provider,model`,
   ]);
   return executionModels().map(({ provider, model }) => {
     const row = rows.find((r) => r.provider === provider && r.model === model);
@@ -107,14 +108,22 @@ export async function claimRegulatedJob(): Promise<Job | undefined> {
     await tx`select pg_advisory_xact_lock(${EXECUTION_LOCK})`;
     const [clock] = await tx`select now() as now`;
     const now = new Date(clock.now).getTime();
-    const [global] = await tx`select count(*)::int as n from ai_responses where status='running'`;
+    const [global] =
+      await tx`select count(*)::int as n from ${apiWork(tx)} a where status='running'`;
     if (global.n >= workerConcurrency()) return undefined;
     // One candidate per model/organization avoids head-of-line blocking by a throttled provider.
-    const candidates = await tx<Job[]>`select q.*,r.snapshot from (
-      select distinct on(org_id,provider,model) * from ai_responses where status='queued'
-      order by org_id,provider,model,created_at,id
-    ) q join measurement_runs r on r.id=q.run_id and r.org_id=q.org_id order by q.created_at,q.id`;
+    const candidates = await tx<Job[]>`select distinct on(org_id,provider,model) * from (
+      select a.id,a.org_id,a.run_id,a.query_text,a.provider,a.model,a.created_at,r.snapshot,'measurement' as kind
+      from ai_responses a join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where a.status='queued'
+      union all select id,org_id,audit_id as run_id,query_text,provider,model,created_at,snapshot,'site_audit' as kind
+      from audit_ai_jobs where status='queued'
+    ) candidates order by org_id,provider,model,created_at,id`;
+    candidates.sort(
+      (a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime(),
+    );
     for (const job of candidates) {
+      const table = tx(jobTable(job.kind)),
+        usageId = tx(usageColumn(job.kind));
       const [paused] =
         await tx`select 1 from provider_cooldowns where org_id=${job.org_id} and provider=${job.provider} and paused_until>now()`;
       if (paused) continue;
@@ -130,9 +139,9 @@ export async function claimRegulatedJob(): Promise<Job | undefined> {
         // No request is sent. Avoid silently stranding work whose single-request
         // reservation cannot fit the configured minute quota.
         await tx`with stopped as (
-          update ai_responses set status='failed',error_code='request_exceeds_token_rate_limit',cost_micros=0,finished_at=now()
+          update ${table} set status='failed',error_code='request_exceeds_token_rate_limit',cost_micros=0,finished_at=now()
           where id=${job.id} and org_id=${job.org_id} and status='queued' returning id
-        ) update usage_records set amount_micros=0,kind='estimated' where response_id in(select id from stopped) and org_id=${job.org_id}`;
+        ) update usage_records set amount_micros=0,kind='estimated' where ${usageId} in(select id from stopped) and org_id=${job.org_id}`;
         continue;
       }
       const [recent] = await tx`select
@@ -140,7 +149,7 @@ export async function claimRegulatedJob(): Promise<Job | undefined> {
         count(*) filter(where started_at>now()-interval '60 seconds')::int as requests,
         coalesce(sum(greatest(coalesce((parameters->'rateControl'->>'tokensReserved')::bigint,${tokens}),coalesce(input_tokens::bigint,0)+coalesce(output_tokens::bigint,0)))
           filter(where started_at>now()-interval '60 seconds'),0)::bigint as tokens
-        from ai_responses where org_id=${job.org_id} and provider=${job.provider}
+        from ${apiWork(tx)} a where org_id=${job.org_id} and provider=${job.provider}
         and (${job.provider === "kimi"} or model=${job.model})
         and (status='running' or started_at>now()-interval '60 seconds')`;
       if (
@@ -149,14 +158,20 @@ export async function claimRegulatedJob(): Promise<Job | undefined> {
         Number(recent.tokens) + tokens > limits.tpm
       )
         continue;
-      const [claimed] = await tx<Job[]>`update ai_responses set status='running',started_at=now(),
+      const [claimed] = await tx<Job[]>`update ${table} set status='running',started_at=now(),
         parameters=parameters || ${JSON.stringify({ rateControl: { tokensReserved: tokens, rpm: limits.rpm, tpm: limits.tpm, version: 1 } })}::jsonb
         where id=${job.id} and org_id=${job.org_id} and status='queued' returning *`;
       if (!claimed) continue;
-      await tx`update usage_records set created_at=now() where response_id=${job.id} and org_id=${job.org_id}`;
+      await tx`update usage_records set created_at=now() where ${usageId}=${job.id} and org_id=${job.org_id}`;
       await tx`update model_execution_limits set next_start_at=now()+${Math.ceil(60_000 / limits.rpm)}*interval '1 millisecond'
         where org_id=${job.org_id} and provider=${job.provider} and model=${job.model}`;
-      return { ...claimed, snapshot: job.snapshot, rate_tokens: tokens };
+      return {
+        ...claimed,
+        run_id: job.run_id,
+        kind: job.kind,
+        snapshot: job.snapshot,
+        rate_tokens: tokens,
+      };
     }
     return undefined;
   });
@@ -199,7 +214,7 @@ export async function recordExecutionFeedback(
     if (feedback) {
       const cushion = job.rate_tokens ?? rateTokenReserve(job);
       const [inFlight] =
-        await tx`select count(*)::int as n from ai_responses where org_id=${job.org_id} and provider=${job.provider} and status='running'`;
+        await tx`select count(*)::int as n from ${apiWork(tx)} a where org_id=${job.org_id} and provider=${job.provider} and status='running'`;
       if (feedback.remainingRequests != null && feedback.remainingRequests <= inFlight.n)
         pause = Math.max(pause, feedback.resetRequestsMs ?? 60_000);
       if (feedback.remainingTokens != null && feedback.remainingTokens < cushion * (inFlight.n + 1))

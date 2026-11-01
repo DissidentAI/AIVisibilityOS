@@ -15,7 +15,7 @@ Implémentés : structure Next.js, migrations PostgreSQL/Drizzle, propriétaire 
 ### Suites non livrées
 
 - Alertes : événements d’exécution, budget et changements ; seuil minimum d’échantillon, comparaison homogène, intervalle d’incertitude et période anti-duplication. Ne pas appeler « baisse significative » une simple différence.
-- Audit GEO des pages et suivi des recommandations : persistance des actions et validation humaine. Crawl public autorisé avec protections SSRF avant activation. Aucun accès à une URL arbitraire dans le MVP ; seules les pistes tirées des mentions collectées sont livrées.
+- Suivi des actions issues de l’audit : persistance des tâches, validation humaine et évolution des constats. L’audit public borné, protégé contre SSRF et complété par une synthèse IA facultative est livré ; voir [SITE-AUDIT.md](SITE-AUDIT.md).
 - Sentiment : classification avec extraits vérifiables, incertitude et corrections humaines ; corpus d’évaluation français/anglais avant score produit.
 - Espaces clients/membres/rôles : matrice de permissions serveur, tests adversariaux, audit indépendant et éventuellement PostgreSQL RLS avant ouverture.
 

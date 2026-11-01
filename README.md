@@ -23,6 +23,7 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 - Campagnes à 1–5 échantillons par question/fournisseur, file PostgreSQL persistante et worker parallèle avec plafonds par fournisseur/modèle, marge de sécurité et pauses sur 429. [Réglages de vitesse](docs/EXECUTION.md).
 - Réponses intégrales mises en forme en Markdown, copie et exports texte/Markdown, mentions explicites, comparaisons, historique, incertitude statistique et CSV. [Lecture et exports](docs/ANSWER-EXPORTS.md).
 - Reprise individuelle ou groupée des échecs avec aperçu budgétaire, protection contre les doublons et conservation des tentatives initiales. Recherche et filtres dans le journal, suivi des campagnes partielles et coûts inconnus explicites.
+- Audit technique des pages publiques et comparaison de trois concurrents : crawl persistant avec robots.txt, protection SSRF, preuves consultables, exports CSV/JSON et synthèse IA facultative avec coût confirmé. [Méthode et limites](docs/SITE-AUDIT.md).
 - Opportunités éditoriales descriptives : écarts de mentions par question, faits/hypothèses/actions séparés, réponses justificatives consultables. Aucun audit de site ou lien de causalité inventé.
 - Budgets mensuels avec réservation atomique, aperçu du coût avant lancement et coûts inconnus conservés comme engagements prudents.
 - Campagnes planifiées toutes les 24 heures ou tous les 7 jours, pause/reprise et journal des échéances.
@@ -33,7 +34,7 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 - Navigation mobile avec gestion du focus, export des données personnelles et suppression du compte.
 - Migrations Drizzle, Docker Compose, reverse proxy HTTPS optionnel, tests PostgreSQL et navigateur.
 
-**Pas encore livré :** envoi périodique automatique des rapports, alertes sortantes, audit de pages et recommandations fondées sur cet audit, classification automatique du sentiment, comptes d’équipe, Stripe et cloud multi-tenant. Les rapports sont générés à la demande. Voir [le guide des workflows agences](docs/AGENCY-WORKFLOWS.md) et [la feuille de route](docs/ROADMAP.md).
+**Pas encore livré :** envoi périodique automatique des rapports, alertes sortantes, suivi des actions issues des audits, classification automatique du sentiment, comptes d’équipe, Stripe et cloud multi-tenant. Les rapports sont générés à la demande. Voir [le guide des workflows agences](docs/AGENCY-WORKFLOWS.md) et [la feuille de route](docs/ROADMAP.md).
 
 ## Démarrage local
 

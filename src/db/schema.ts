@@ -267,6 +267,118 @@ export const citations = pgTable(
   ],
 );
 // Deliberately independent of project lifetime: deleting a project cannot reset spending.
+export const siteAudits = pgTable(
+  "site_audits",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    language: text("language").notNull(),
+    maxPages: integer("max_pages").notNull(),
+    version: text("version").notNull(),
+    createdAt: created(),
+  },
+  (t) => [
+    unique("audit_org_unique").on(t.id, t.orgId),
+    foreignKey({
+      columns: [t.projectId, t.orgId],
+      foreignColumns: [projects.id, projects.orgId],
+    }).onDelete("cascade"),
+    index("audit_project_idx").on(t.orgId, t.projectId, t.createdAt),
+  ],
+);
+export const auditSites = pgTable(
+  "audit_sites",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    auditId: uuid("audit_id").notNull(),
+    target: jsonb("target").notNull(),
+    status: text("status").notNull().default("queued"),
+    reason: text("reason"),
+    state: jsonb("state").notNull(),
+    maxPages: integer("max_pages").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  },
+  (t) => [
+    unique("audit_site_org_unique").on(t.id, t.orgId),
+    foreignKey({
+      columns: [t.auditId, t.orgId],
+      foreignColumns: [siteAudits.id, siteAudits.orgId],
+    }).onDelete("cascade"),
+    index("audit_sites_queue_idx").on(t.status, t.updatedAt),
+  ],
+);
+export const auditPages = pgTable(
+  "audit_pages",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    siteId: uuid("site_id").notNull(),
+    url: text("url").notNull(),
+    finalUrl: text("final_url"),
+    depth: integer("depth").notNull(),
+    httpStatus: integer("http_status"),
+    errorCode: text("error_code"),
+    responseMs: integer("response_ms"),
+    bytes: integer("bytes").notNull().default(0),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+    facts: jsonb("facts"),
+  },
+  (t) => [
+    unique("audit_page_org_unique").on(t.id, t.orgId),
+    unique("audit_page_url_unique").on(t.siteId, t.url),
+    foreignKey({
+      columns: [t.siteId, t.orgId],
+      foreignColumns: [auditSites.id, auditSites.orgId],
+    }).onDelete("cascade"),
+  ],
+);
+export const crawlHosts = pgTable("crawl_hosts", {
+  domain: text("domain").primaryKey(),
+  nextAt: timestamp("next_at", { withTimezone: true }).notNull(),
+  lastAt: timestamp("last_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const auditAiJobs = pgTable(
+  "audit_ai_jobs",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    auditId: uuid("audit_id").notNull(),
+    queryText: text("query_text").notNull(),
+    snapshot: jsonb("snapshot").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    returnedModel: text("returned_model"),
+    channel: text("channel").notNull(),
+    parameters: jsonb("parameters").notNull(),
+    status: text("status").notNull().default("queued"),
+    answer: text("answer"),
+    raw: jsonb("raw"),
+    grounding: jsonb("grounding"),
+    requestId: text("request_id"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    costMicros: integer("cost_micros"),
+    errorCode: text("error_code"),
+    createdAt: created(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("audit_ai_org_unique").on(t.id, t.orgId),
+    foreignKey({
+      columns: [t.auditId, t.orgId],
+      foreignColumns: [siteAudits.id, siteAudits.orgId],
+    }).onDelete("cascade"),
+    index("audit_ai_queue_idx").on(t.status, t.createdAt),
+    index("audit_ai_rate_idx").on(t.orgId, t.provider, t.model, t.startedAt),
+  ],
+);
 export const usage = pgTable(
   "usage_records",
   {
@@ -276,6 +388,9 @@ export const usage = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     responseId: uuid("response_id")
       .references(() => responses.id, { onDelete: "set null" })
+      .unique(),
+    auditAiId: uuid("audit_ai_id")
+      .references(() => auditAiJobs.id, { onDelete: "set null" })
       .unique(),
     amountMicros: integer("amount_micros").notNull(),
     kind: text("kind").default("reserved").notNull(),

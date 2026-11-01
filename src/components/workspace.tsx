@@ -76,6 +76,7 @@ import { HistoryPanel } from "./workspace/history-panel";
 import { RetryDialog } from "./workspace/retry-dialog";
 import { RunStatus } from "./workspace/run-status";
 import { OpportunitiesPanel } from "./workspace/opportunities-panel";
+import { SiteAuditPanel } from "./workspace/site-audit-panel";
 import { canRetry, costSummary } from "@/lib/run-insights";
 type Tab =
   | "overview"
@@ -87,6 +88,7 @@ type Tab =
   | "usage"
   | "schedules"
   | "opportunities"
+  | "audit"
   | "reports";
 export function Workspace() {
   const [lang, setLang] = useState<"fr" | "en">("fr"),
@@ -276,6 +278,7 @@ export function Workspace() {
     { id: "competitors", title: t("Concurrents", "Competitors"), icon: Users },
     { id: "sources", title: t("Sources & citations", "Sources & citations"), icon: Globe2 },
     { id: "opportunities", title: t("Opportunités GEO", "GEO opportunities"), icon: Lightbulb },
+    { id: "audit", title: t("Audit de site", "Site audit"), icon: Globe2 },
     { id: "history", title: t("Historique & exports", "History & exports"), icon: History },
     { id: "schedules", title: t("Planification", "Scheduling"), icon: CalendarClock },
     { id: "reports", title: t("Rapports clients", "Client reports"), icon: FileText },
@@ -771,7 +774,7 @@ export function Workspace() {
                   </div>
                 </div>
               ) : null}
-              {project && !["settings", "usage"].includes(tab) && (
+              {project && !["settings", "usage", "audit"].includes(tab) && (
                 <>
                   <div className="section-toolbar">
                     <div className="inline">
@@ -1248,6 +1251,15 @@ export function Workspace() {
                     />
                   )}
                 </>
+              )}
+              {project && tab === "audit" && (
+                <SiteAuditPanel
+                  key={project.id}
+                  project={project}
+                  state={state}
+                  t={t}
+                  date={date}
+                />
               )}
               {tab === "settings" && (
                 <>

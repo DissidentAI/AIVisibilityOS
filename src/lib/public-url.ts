@@ -4,7 +4,8 @@ export function safePublicUrl(value: string) {
     const url = new URL(value);
     if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.port)
       return null;
-    // Citations are links only. No arbitrary URLs are ever fetched by the server.
+    // Syntax check only. Crawling additionally requires DNS/IP pinning and
+    // same-site redirect checks in site-audit/network.ts.
     if (
       !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(url.hostname) ||
       /(^|\.)(localhost|local|internal|test|invalid)$/i.test(url.hostname)

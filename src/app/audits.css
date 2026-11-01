@@ -1,0 +1,140 @@
+.site-audit-panel {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.site-audit-panel > * {
+  min-width: 0;
+}
+.audit-intro {
+  padding: 30px;
+}
+.audit-intro h2 {
+  margin: 12px 0;
+  font-size: clamp(24px, 3vw, 36px);
+  letter-spacing: -0.04em;
+}
+.audit-config {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(200px, 2fr);
+  gap: 24px;
+  margin: 24px 0;
+}
+.audit-targets {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+.audit-targets legend {
+  font-size: 12px;
+  padding: 0 6px;
+  color: var(--muted);
+}
+.audit-targets label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.audit-targets input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+.audit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+.audit-actions .field {
+  margin: 0;
+  min-width: 180px;
+  flex: 1;
+}
+.audit-actions select {
+  max-width: 100%;
+}
+.audit-comparison th {
+  white-space: normal;
+  min-width: 150px;
+  vertical-align: top;
+}
+.audit-comparison td {
+  min-width: 170px;
+  vertical-align: top;
+}
+.audit-comparison small {
+  margin: 6px 0;
+}
+.audit-observations,
+.audit-synthesis-body {
+  padding: 24px;
+}
+.audit-observations > details {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.audit-observations summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.audit-observations p,
+.audit-url,
+.audit-finding,
+.audit-ai-result,
+.audit-targets span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.audit-url {
+  max-width: 420px;
+}
+.audit-pages {
+  min-width: 650px;
+  table-layout: auto;
+}
+.audit-pages .audit-url {
+  min-width: 260px;
+  width: 55%;
+}
+.audit-evidence-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.audit-ai-result {
+  padding-top: 24px;
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.audit-finding {
+  border-left: 2px solid var(--accent);
+  padding: 4px 0 4px 20px;
+  margin-top: 24px;
+}
+.audit-finding h3 {
+  margin: 8px 0;
+}
+@media (max-width: 640px) {
+  .audit-intro,
+  .audit-observations,
+  .audit-synthesis-body {
+    padding: 20px;
+  }
+  .audit-config {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .audit-actions > .field {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .audit-toolbar {
+    padding: 0 4px;
+  }
+}

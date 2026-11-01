@@ -5,6 +5,7 @@ import { sql } from "./db/client";
 import { maintenance, workOnce } from "./lib/queue";
 import { dispatchSchedule } from "./lib/schedules";
 import { workerConcurrency } from "./lib/execution-control";
+import { workAuditOnce } from "./lib/site-audit/worker";
 const id = randomUUID();
 const concurrency = workerConcurrency();
 const active = new Set<Promise<unknown>>();
@@ -27,6 +28,8 @@ try {
   let lastMaintenance = 0;
   let lastSchedule = 0;
   let retryClaimsAfter = 0;
+  let crawlTask: Promise<unknown> | null = null;
+  let nextCrawlAt = 0;
   while (!stopping) {
     try {
       if (Date.now() - lastMaintenance > 60_000) {
@@ -37,7 +40,17 @@ try {
         await dispatchSchedule();
         lastSchedule = Date.now();
       }
-      if (active.size < concurrency && Date.now() >= retryClaimsAfter) {
+      if (!crawlTask && Date.now() >= nextCrawlAt) {
+        const task = workAuditOnce().catch(() => console.error("site_audit_step_failed"));
+        crawlTask = task;
+        active.add(task);
+        void task.finally(() => {
+          crawlTask = null;
+          nextCrawlAt = Date.now() + 1000;
+          active.delete(task);
+        });
+      }
+      if (active.size - (crawlTask ? 1 : 0) < concurrency && Date.now() >= retryClaimsAfter) {
         const task = workOnce().catch(() => {
           retryClaimsAfter = Date.now() + 5000;
           console.error("worker_job_failed");

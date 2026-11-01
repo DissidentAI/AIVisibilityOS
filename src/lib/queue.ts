@@ -1,4 +1,5 @@
 import { sql } from "../db/client";
+import { jobTable, usageColumn } from "./api-work";
 import { decryptSecret } from "./security";
 import {
   callProvider,
@@ -16,7 +17,10 @@ import { snapshotJson } from "./snapshot-json";
 import { requestEndpoint } from "./provider-config";
 import { claimRegulatedJob, recordExecutionFeedback } from "./execution-control";
 import type { RateFeedback } from "./execution-policy";
+import { parseSynthesis } from "./site-audit/ai-evidence";
 export type Job = {
+  kind?: "measurement" | "site_audit";
+  created_at?: string;
   rate_tokens?: number;
   id: string;
   org_id: string;
@@ -48,12 +52,31 @@ export async function claimJob(
     select c.*, r.snapshot from claimed c
     join measurement_runs r on r.id=c.run_id and r.org_id=c.org_id
   `;
-  return job;
+  if (job) return job;
+  const [auditJob] = await sql<Job[]>`with next_job as (
+    select id from audit_ai_jobs where status='queued' order by created_at,id for update skip locked limit 1
+  ), claimed as (
+    update audit_ai_jobs set status='running',started_at=now() where id in(select id from next_job) returning *
+  ), accounting_period as (
+    update usage_records set created_at=now() where audit_ai_id in(select id from claimed) returning id
+  ) select claimed.*,audit_id as run_id,'site_audit' as kind from claimed`;
+  return auditJob;
 }
 export async function settleJob(job: Job, result: ProviderResult | null, errorCode: string | null) {
+  if (
+    job.kind === "site_audit" &&
+    result?.status === "succeeded" &&
+    !parseSynthesis(result.text, (job.snapshot.parameters.auditEvidenceIds as string[]) ?? [])
+  ) {
+    result = { ...result, status: "invalid" };
+    errorCode = "audit_synthesis_invalid";
+  }
   await sql.begin(async (tx) => {
+    const table = tx(jobTable(job.kind)),
+      usageId = tx(usageColumn(job.kind));
+    const parentId = tx(job.kind === "site_audit" ? "audit_id" : "run_id");
     const [existing] =
-      await tx`select status from ai_responses where id=${job.id} and org_id=${job.org_id} for update`;
+      await tx`select status from ${table} where id=${job.id} and org_id=${job.org_id} for update`;
     if (!existing || existing.status !== "running") return;
     const pricing = job.snapshot.pricing.models as typeof MODELS;
     const searchPricing = (job.snapshot.pricing.search ?? SEARCH_PRICING) as typeof SEARCH_PRICING;
@@ -85,9 +108,9 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
                 searchCost,
             )
           : null;
-    await tx`update ai_responses set status=${result?.status ?? "failed"}, answer=${result?.text ?? null}, returned_model=${result?.model ?? null}, raw=${result ? JSON.stringify(result.raw) : null}::jsonb, grounding=${result?.grounding ? JSON.stringify(result.grounding) : null}::jsonb, request_id=${result?.requestId ?? null}, input_tokens=${result?.input ?? null}, output_tokens=${result?.output ?? null}, cost_micros=${cost}, error_code=${errorCode ?? (result?.status === "invalid" ? "incomplete_or_refused" : null)}, finished_at=now() where id=${job.id} and org_id=${job.org_id}`;
+    await tx`update ${table} set status=${result?.status ?? "failed"}, answer=${result?.text ?? null}, returned_model=${result?.model ?? null}, raw=${result ? JSON.stringify(result.raw) : null}::jsonb, grounding=${result?.grounding ? JSON.stringify(result.grounding) : null}::jsonb, request_id=${result?.requestId ?? null}, input_tokens=${result?.input ?? null}, output_tokens=${result?.output ?? null}, cost_micros=${cost}, error_code=${errorCode ?? (result?.status === "invalid" ? "incomplete_or_refused" : null)}, finished_at=now() where id=${job.id} and org_id=${job.org_id}`;
     if (result)
-      await tx`update ai_responses set parameters=parameters || ${JSON.stringify({
+      await tx`update ${table} set parameters=parameters || ${JSON.stringify({
         execution: {
           servingProvider: result.servingProvider ?? null,
           costSource:
@@ -95,9 +118,9 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
         },
       })}::jsonb where id=${job.id} and org_id=${job.org_id}`;
     if (cost != null)
-      await tx`update usage_records set amount_micros=${cost}, kind='estimated' where response_id=${job.id} and org_id=${job.org_id}`;
+      await tx`update usage_records set amount_micros=${cost}, kind='estimated' where ${usageId}=${job.id} and org_id=${job.org_id}`;
     else
-      await tx`update usage_records set kind='uncertain' where response_id=${job.id} and org_id=${job.org_id}`;
+      await tx`update usage_records set kind='uncertain' where ${usageId}=${job.id} and org_id=${job.org_id}`;
     if (rejectedBeforeInference) {
       // These configuration rejections cannot be repaired by repeating the request.
       // Stop only pending work for this provider in this tenant's campaign.
@@ -108,11 +131,11 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
             ? "provider_auth_failed_before_request"
             : errorCode!;
       await tx`with stopped as (
-        update ai_responses set status='failed',error_code=${stoppedCode},cost_micros=0,finished_at=now()
-        where org_id=${job.org_id} and run_id=${job.run_id} and provider=${job.provider} and status='queued' returning id
-      ) update usage_records set amount_micros=0,kind='estimated' where org_id=${job.org_id} and response_id in (select id from stopped)`;
+        update ${table} set status='failed',error_code=${stoppedCode},cost_micros=0,finished_at=now()
+        where org_id=${job.org_id} and ${parentId}=${job.run_id} and provider=${job.provider} and status='queued' returning id
+      ) update usage_records set amount_micros=0,kind='estimated' where org_id=${job.org_id} and ${usageId} in (select id from stopped)`;
     }
-    if (result?.status === "succeeded") {
+    if (result?.status === "succeeded" && job.kind !== "site_audit") {
       for (const m of detectMentions(result.text, job.snapshot.brands))
         await tx`insert into brand_mentions (org_id,response_id,brand_id,brand_name,excerpt,matched_alias,sentiment) values (${job.org_id},${job.id},${m.brandId},${m.brandName},${m.excerpt},${m.matchedAlias},${m.sentiment})`;
       for (const c of result.citations)
@@ -187,6 +210,10 @@ export async function maintenance() {
       await tx`update ai_responses set status='uncertain',error_code='worker_interrupted_no_automatic_retry',finished_at=now() where status='running' and started_at < now() - interval '2 minutes' returning id`;
     for (const row of expired)
       await tx`update usage_records set kind='uncertain' where response_id=${row.id}`;
+    const expiredAudits =
+      await tx`update audit_ai_jobs set status='uncertain',error_code='worker_interrupted_no_automatic_retry',finished_at=now() where status='running' and started_at<now()-interval '2 minutes' returning id`;
+    for (const row of expiredAudits)
+      await tx`update usage_records set kind='uncertain' where audit_ai_id=${row.id}`;
     await tx`delete from sessions where expires_at < now()`;
     await tx`delete from rate_limits where expires_at < now()`;
     const days = Number(process.env.RETENTION_DAYS ?? 365);
@@ -196,6 +223,10 @@ export async function maintenance() {
     await tx`delete from schedule_events where created_at < now() - ${days} * interval '1 day'`;
     // Retain usage accounting separately; queued/running jobs are never purged.
     await tx`delete from measurement_runs r where r.created_at < now() - ${days} * interval '1 day' and not exists(select 1 from ai_responses a where a.run_id=r.id and a.status in ('queued','running'))`;
+    await tx`delete from site_audits a where a.created_at<now()-${days}*interval '1 day'
+      and not exists(select 1 from audit_sites s where s.audit_id=a.id and s.status in ('queued','running'))
+      and not exists(select 1 from audit_ai_jobs j where j.audit_id=a.id and j.status in ('queued','running'))`;
+    await tx`delete from crawl_hosts where greatest(next_at,last_at)<now()-interval '7 days'`;
     await tx`delete from usage_records where created_at < now() - ${Math.max(62, days)} * interval '1 day' and kind <> 'reserved'`;
   });
 }

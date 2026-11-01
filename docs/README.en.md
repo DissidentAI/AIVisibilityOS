@@ -8,6 +8,8 @@ The usable slice includes owner registration, encrypted credentials, projects an
 
 Failed, invalid and interrupted responses can be retried individually or together from **History & exports**, with a cost preview and an explicit confirmation. Every retry creates a linked campaign, preserves the original evidence and costs, and never repeats successful responses. Duplicate launches are blocked. Retry samples are excluded from automatic historical comparisons. History has search, provider/status filters, incident explanations and mobile cards. **GEO opportunities** separates observed mention gaps, hypotheses and suggested editorial actions, with direct access to evidence. It does not crawl your website or establish causation. See the [product audit](AUDIT-2026-11-01.md).
 
+**Site audit** separately crawls bounded public HTML for your brand and up to three competitors, respects robots rules and protects against SSRF. It provides observed page comparisons, technical evidence, CSV/JSON exports and an optional budgeted AI synthesis. See [scope, security and limitations](SITE-AUDIT.md).
+
 ## Start locally
 
 Use Node 24 (minimum 22.12).
@@ -52,7 +54,7 @@ Country is textual prompt context, not geolocation. Baseline mode does not reque
 
 To use your Xiaomi key, select **Settings → Connect a key → Xiaomi MiMo**. The direct connector uses `mimo-v2.6-pro` at Xiaomi's official pay-as-you-go endpoint; no OpenRouter account is required. The separate Xiaomi Token Plan is not supported by this endpoint. Saving a key in the UI and starting a manual campaign first check authentication using a read-only endpoint, without text generation. A successful check does not guarantee model access or available credit. A rejected Kimi key must be replaced with a valid Kimi API Platform key; retries cannot repair it. If a worker receives 401, it stops that campaign's remaining queued requests for the same provider and releases their reservations.
 
-This release supports one owner per installation. Persistent daily/weekly campaigns, explicit web-search measurements, preflight cost previews and branded PDF reports with immutable JSON evidence are available; see [agency workflows](AGENCY-WORKFLOWS.md). Teams, automatic report delivery, outbound alerts, page audits and recommendations based on those audits, Stripe and a hosted multi-tenant service remain future work. See [roadmap](ROADMAP.md) and [security](../SECURITY.md).
+This release supports one owner per installation. Persistent daily/weekly campaigns, explicit web-search measurements, preflight cost previews and branded PDF reports with immutable JSON evidence are available; see [agency workflows](AGENCY-WORKFLOWS.md). Teams, automatic report delivery, outbound alerts, audit action tracking, Stripe and a hosted multi-tenant service remain future work. See [roadmap](ROADMAP.md) and [security](../SECURITY.md).
 
 ## Open source and business
 

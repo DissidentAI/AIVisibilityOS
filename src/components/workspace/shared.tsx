@@ -186,6 +186,38 @@ export function friendly(code: string, t: Translate) {
       `Unable to verify ${PROVIDER_LABELS[provider]} right now. No scan was started; please try again shortly.`,
     );
   const errors: Record<string, string> = {
+    audit_already_running: t(
+      "Une exploration est en cours. Attendez sa fin ou arrêtez-la depuis l’audit.",
+      "A crawl is running. Wait for it to finish or stop it from the audit.",
+    ),
+    audit_daily_limit: t(
+      "Le plafond de 2 000 pages demandées sur 24 heures est atteint. Réduisez la portée ou patientez.",
+      "The cap of 2,000 requested pages over 24 hours was reached. Reduce the scope or wait.",
+    ),
+    audit_not_ready: t(
+      "Attendez la fin de l’exploration avant de lancer la synthèse.",
+      "Wait for crawling to finish before starting synthesis.",
+    ),
+    audit_no_pages: t(
+      "Aucune page HTML exploitable. Consultez les motifs de blocage des sites.",
+      "No usable HTML pages. Review the websites' blocking reasons.",
+    ),
+    audit_ai_running: t(
+      "Une synthèse est déjà en attente ou en cours.",
+      "A synthesis is already queued or running.",
+    ),
+    audit_ai_limit: t(
+      "La limite de dix synthèses pour cet audit est atteinte.",
+      "The limit of ten syntheses for this audit was reached.",
+    ),
+    audit_synthesis_invalid: t(
+      "La réponse IA n’a pas fourni un rapport structuré avec des références valides. La réponse originale et son coût sont conservés ; vérifiez avant de relancer.",
+      "The AI response did not provide a structured report with valid references. Its original text and cost are kept; review before running it again.",
+    ),
+    cancelled_before_request: t(
+      "Appel annulé avant envoi, sans coût API.",
+      "Call cancelled before sending, with no API cost.",
+    ),
     network_or_timeout: t(
       "La connexion a échoué ou le fournisseur n’a pas répondu à temps. Le coût peut être inconnu : vérifiez avant de réessayer.",
       "The connection failed or the provider timed out. Cost may be unknown: review before retrying.",

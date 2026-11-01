@@ -4,6 +4,7 @@ import "@fontsource-variable/manrope";
 import "./globals.css";
 import "./editorial.css";
 import "./answers.css";
+import "./audits.css";
 export const metadata: Metadata = {
   title: "AI Visibility OS",
   description:
