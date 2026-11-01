@@ -1,0 +1,1 @@
+CREATE INDEX "responses_rate_idx" ON "ai_responses" USING btree ("org_id","provider","model","started_at");

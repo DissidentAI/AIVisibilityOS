@@ -6,9 +6,9 @@
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Migrations sur base vide et seconde application idempotente | Réussite                                                                           |
 | TypeScript strict                                           | Réussite                                                                           |
-| Tests unitaires + intégration PostgreSQL                    | **81 tests réussis**                                                               |
+| Tests unitaires + intégration PostgreSQL                    | **92 tests réussis**                                                               |
 | Build Next.js production standalone                         | Réussite                                                                           |
-| Parcours navigateur Chromium et WebKit                      | **11 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                     |
+| Parcours navigateur Chromium et WebKit                      | **13 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                     |
 | Audit npm, dépendances de production et développement       | **0 vulnérabilité signalée** au contrôle effectué                                  |
 | Connexion réelle OpenAI                                     | Non vérifiée : aucune clé réelle fournie                                           |
 | Connexion réelle Gemini                                     | Non vérifiée : aucune clé réelle fournie                                           |
@@ -89,3 +89,11 @@ Une unique répétition diagnostique d’une requête web refusée, avec la clé
 L’adaptateur reconnaît uniquement ce refus précis dans un corps d’erreur limité à 16 Kio ; le texte fournisseur n’est ni exposé ni journalisé. Les autres erreurs restent génériques. Les tests vérifient l’arrêt des questions MiMo restantes, les réservations libérées uniquement pour les refus identifiés, le maintien des anciennes erreurs 400 sans réinterprétation et la possibilité de choisir une nouvelle campagne sans recherche. Le parcours WebKit contrôle le lien officiel et le changement explicite de mode, sans lancement automatique.
 
 Le scénario de validation des champs utilise maintenant le mode de mouvement réduit, après un délai de stabilité dépassé dans WebKit Linux en CI. Le scénario mobile distinct conserve les animations actives et leurs vérifications de navigation/focus.
+
+## Parallélisme, logo et réponses Markdown
+
+Les migrations 0005/0006 ajoutent les plafonds persistants, les pauses fournisseur et un index pour les fenêtres glissantes. Les tests PostgreSQL vérifient les appels réellement simultanés avec adaptateurs synthétiques différés, le plafond global, les prises concurrentes sans doublon, les plafonds RPM/TPM, la pause 429, les en-têtes de quota OpenAI, la persistance des réglages et l’isolation des organisations. Les succès arrivés en retard ne suppriment pas une pause et ne relèvent pas un plafond récemment observé plus bas.
+
+Le rendu Markdown est testé contre des liens dangereux et du HTML brut. Un parcours WebKit vérifie les titres/listes/tableaux, les repères fournisseur, l’absence de téléchargement des images distantes, les fichiers `.txt` et `.md` (ce dernier identique à la réponse originale), la copie et son repli manuel sur refus du navigateur, ainsi que le layout à 390 px. L’API du presse-papiers est simulée uniquement dans ce test pour contrôler explicitement succès/refus ; il ne valide pas une permission iOS physique. Un autre parcours modifie les plafonds Xiaomi et vérifie leur persistance après actualisation, puis sur mobile. Le logo fourni apparaît sur les captures réelles de l’application.
+
+Aucun appel payant ni benchmark fournisseur réel n’a été lancé pour ces changements. La vitesse maximale et les quotas exacts du compte du propriétaire ne sont pas certifiés par des fixtures. Les sources officielles et les valeurs locales sont documentées dans [EXECUTION.md](EXECUTION.md). Les captures de réponses sont explicitement synthétiques et réservées à la base `_test`.

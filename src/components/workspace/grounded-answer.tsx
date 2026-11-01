@@ -1,5 +1,5 @@
 "use client";
-import type { ReactNode } from "react";
+import { AnswerContent } from "./answer-content";
 import type { ResponseRecord, Citation } from "@/lib/types";
 import type { Translate } from "./shared";
 export function GroundedAnswer({
@@ -11,29 +11,7 @@ export function GroundedAnswer({
   citations: Citation[];
   t: Translate;
 }) {
-  const text = response.answer ?? "",
-    links = (response.grounding?.links ?? [])
-      .filter((l) => l.end >= 0 && l.end <= text.length)
-      .sort((a, b) => a.end - b.end);
-  const nodes: ReactNode[] = [];
-  let offset = 0;
-  for (const [i, l] of links.entries()) {
-    nodes.push(text.slice(offset, l.end));
-    nodes.push(
-      <a
-        key={i}
-        href={l.url}
-        target="_blank"
-        rel="noreferrer"
-        title={l.title}
-        className="citation-marker"
-      >
-        [{i + 1}]
-      </a>,
-    );
-    offset = l.end;
-  }
-  nodes.push(text.slice(offset));
+  const text = response.answer ?? "";
   return (
     <>
       {response.parameters.search === true && (
@@ -49,9 +27,14 @@ export function GroundedAnswer({
               )}
         </p>
       )}
-      <div className="answer">
-        {text ? nodes : t("Aucune réponse disponible.", "No response available.")}
-      </div>
+      <AnswerContent
+        key={response.id}
+        text={text}
+        links={response.grounding?.links ?? []}
+        provider={response.provider}
+        id={response.id}
+        t={t}
+      />
       {!!citations.length && (
         <div className="evidence-sources">
           <strong>{t("Sources retournées", "Returned sources")}</strong>

@@ -3,6 +3,7 @@ import { MotionProvider, AmbientBackground } from "@/components/ui/motion";
 import "@fontsource-variable/manrope";
 import "./globals.css";
 import "./editorial.css";
+import "./answers.css";
 export const metadata: Metadata = {
   title: "AI Visibility OS",
   description:

@@ -62,6 +62,43 @@ export const credentials = pgTable(
   },
   (t) => [primaryKey({ columns: [t.orgId, t.provider] })],
 );
+export const modelExecutionLimits = pgTable(
+  "model_execution_limits",
+  {
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    rpm: integer("rpm"),
+    tpm: integer("tpm"),
+    parallel: integer("parallel"),
+    adaptiveParallel: integer("adaptive_parallel").notNull().default(2),
+    successes: integer("successes").notNull().default(0),
+    backoff: integer("backoff").notNull().default(0),
+    nextStartAt: timestamp("next_start_at", { withTimezone: true }),
+    observed: jsonb("observed"),
+    observedAt: timestamp("observed_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.orgId, t.provider, t.model] }),
+    check(
+      "execution_limits_bounds",
+      schemaSql`(${t.rpm} is null or ${t.rpm} between 1 and 100000) and (${t.tpm} is null or ${t.tpm} between 1000 and 100000000) and (${t.parallel} is null or ${t.parallel} between 1 and 16) and ${t.adaptiveParallel} between 1 and 16`,
+    ),
+  ],
+);
+export const providerCooldowns = pgTable(
+  "provider_cooldowns",
+  {
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    pausedUntil: timestamp("paused_until", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.provider] })],
+);
 export const projects = pgTable(
   "projects",
   {
@@ -165,6 +202,7 @@ export const responses = pgTable(
     unique("response_org_unique").on(t.id, t.orgId),
     unique("response_sample_unique").on(t.runId, t.queryText, t.provider, t.sample),
     index("responses_queue_idx").on(t.status, t.createdAt),
+    index("responses_rate_idx").on(t.orgId, t.provider, t.model, t.startedAt),
     index("responses_run_idx").on(t.runId, t.orgId),
   ],
 );

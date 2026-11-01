@@ -548,3 +548,26 @@ describe("official API normalization with synthetic fixtures", () => {
     expect(r.citations).toHaveLength(1);
   });
 });
+
+test("OpenRouter mid-generation 429 retains safe retry hints without exposing the upstream message", async () => {
+  const fetch = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: 429, message: "sensitive upstream content" } }),
+        { status: 200, headers: { "retry-after": "120" } },
+      ),
+    );
+  try {
+    await expect(
+      callProvider("openrouter", "synthetic-key", "Synthetic question", "Synthetic instructions"),
+    ).rejects.toMatchObject({
+      code: "provider_http_429",
+      rateFeedback: { retryAfterMs: 120000 },
+      message: "provider_http_429",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally {
+    fetch.mockRestore();
+  }
+});

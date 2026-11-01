@@ -24,6 +24,7 @@ import { getBranding, saveBranding, createReport, listReports, getReport } from 
 import { renderReport } from "@/lib/report-pdf";
 import { PROVIDERS } from "@/lib/providers";
 import { createRetry, estimateRetry } from "@/lib/retries";
+import { saveExecutionPolicy } from "@/lib/execution-control";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function body(request: Request, maxBytes = 100_000) {
@@ -78,6 +79,10 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       return json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", true) });
     }
     if (route === "state" && method === "GET") return json(await getState(user));
+    if (route === "execution/limits" && method === "POST") {
+      await saveExecutionPolicy(user, await body(request));
+      return json({ ok: true });
+    }
     if (route === "projects" && method === "POST")
       return json(await createProject(user, await body(request)), 201);
     if (path[0] === "projects" && path[1] && path.length === 2 && method === "DELETE") {

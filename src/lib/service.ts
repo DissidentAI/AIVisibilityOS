@@ -36,6 +36,7 @@ import {
 } from "./provider-config";
 import { requestOptions } from "./providers";
 import { snapshotJson } from "./snapshot-json";
+import { getExecutionStatus } from "./execution-control";
 export { projectSchema, brandSchema } from "./project-validation";
 export const uuidSchema = z.uuid();
 export function ceilingMicros() {
@@ -73,6 +74,7 @@ export async function getState(user: User): Promise<State> {
     sql`select exists(select 1 from worker_heartbeats where seen_at > now() - interval '45 seconds') as online`,
   ]);
   return {
+    execution: await getExecutionStatus(user),
     user,
     projects: ps.map((p) => ({
       id: p.id,

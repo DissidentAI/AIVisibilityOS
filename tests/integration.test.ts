@@ -18,7 +18,12 @@ import { randomBytes } from "node:crypto";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db, sql } from "../src/db/client";
 import { createProject, createRun, getRun, getState, saveCredential } from "../src/lib/service";
-import { claimJob, settleJob, workOnce, maintenance } from "../src/lib/queue";
+import {
+  claimJob as claimQueueJob,
+  settleJob,
+  workOnce as processQueueJob,
+  maintenance,
+} from "../src/lib/queue";
 import { digest, hashPassword } from "../src/lib/security";
 import { authenticate, requireUser, sessionToken, rateLimit } from "../src/lib/auth";
 import { GET, POST, DELETE } from "../src/app/api/[[...path]]/route";
@@ -28,6 +33,9 @@ import { MODELS } from "../src/lib/provider-config";
 import { createRetry, estimateRetry } from "../src/lib/retries";
 import { comparisonSignature } from "../src/lib/measurement";
 import { costSummary, editorialOpportunities } from "../src/lib/run-insights";
+const claimJob = () => claimQueueJob({ unregulatedTestOnly: true });
+const workOnce = (adapter: Parameters<typeof processQueueJob>[0]) =>
+  processQueueJob(adapter, { unregulatedTestOnly: true });
 afterEach(() => vi.restoreAllMocks());
 beforeAll(async () => {
   if (!new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"))
@@ -1177,5 +1185,204 @@ describe("agency workflows with PostgreSQL and synthetic provider fixtures", () 
     const next = nextOccurrence(due, 24, now);
     expect(next.next.toISOString()).toBe("2026-03-31T09:00:00.000Z");
     expect(next.missed).toBe(2);
+  });
+});
+
+describe("durable parallel execution", () => {
+  test("runs multiple requests concurrently without exceeding the installation cap", async () => {
+    const a = await prepared();
+    await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openai", "gemini"],
+      samples: 1,
+    });
+    const previous = process.env.WORKER_CONCURRENCY;
+    process.env.WORKER_CONCURRENCY = "2";
+    let count = 0;
+    const releases: (() => void)[] = [];
+    const adapter = async () => {
+      count++;
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return fixtureResult;
+    };
+    const first = processQueueJob(adapter);
+    let second: Promise<boolean> | undefined;
+    try {
+      await vi.waitFor(() => expect(count).toBe(1));
+      second = processQueueJob(adapter);
+      await vi.waitFor(() => expect(count).toBe(2));
+      expect(await processQueueJob(adapter)).toBe(false);
+      const running = await sql`select id from ai_responses where status='running'`;
+      expect(running).toHaveLength(2);
+      expect(new Set(running.map((r) => r.id)).size).toBe(2);
+    } finally {
+      releases.forEach((resolve) => resolve());
+      await Promise.all([first, second]);
+      if (previous == null) delete process.env.WORKER_CONCURRENCY;
+      else process.env.WORKER_CONCURRENCY = previous;
+    }
+    expect(count).toBe(2);
+  });
+
+  test("serializes competing claims, smooths starts and enforces per-model parallel limits", async () => {
+    const { saveExecutionPolicy } = await import("../src/lib/execution-control");
+    const a = await prepared();
+    await createRun(a.user, { projectId: a.projectId, providers: ["openai"], samples: 1 });
+    await saveExecutionPolicy(a.user, {
+      provider: "openai",
+      model: MODELS.openai.id,
+      rpm: 60,
+      tpm: 100000,
+      parallel: 2,
+    });
+    const claimed = (await Promise.all(Array.from({ length: 8 }, () => claimQueueJob()))).filter(
+      Boolean,
+    );
+    expect(claimed).toHaveLength(1);
+    await sql`update model_execution_limits set next_start_at=now()-interval '1 second'`;
+    const second = await claimQueueJob();
+    expect(second).toBeDefined();
+    expect(second!.id).not.toBe(claimed[0]!.id);
+    await sql`update model_execution_limits set next_start_at=now()-interval '1 second'`;
+    expect(await claimQueueJob()).toBeUndefined();
+    await settleJob(claimed[0]!, fixtureResult, null);
+    expect(await claimQueueJob()).toBeDefined();
+  });
+
+  test("respects rolling RPM/TPM even after workers restart and releases blocked request reserves", async () => {
+    const { saveExecutionPolicy, rateTokenReserve } = await import("../src/lib/execution-control");
+    const a = await prepared();
+    const run = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openai"],
+      samples: 1,
+    });
+    await saveExecutionPolicy(a.user, {
+      provider: "openai",
+      model: MODELS.openai.id,
+      rpm: 1,
+      tpm: 100000,
+      parallel: 4,
+    });
+    const job = (await claimQueueJob())!;
+    await settleJob(job, fixtureResult, null);
+    await sql`update model_execution_limits set next_start_at=null`;
+    expect(await claimQueueJob()).toBeUndefined();
+    await sql`update ai_responses set started_at=now()-interval '61 seconds' where id=${job.id}`;
+    await saveExecutionPolicy(a.user, {
+      provider: "openai",
+      model: MODELS.openai.id,
+      rpm: 100,
+      tpm: Math.ceil(rateTokenReserve(job) * 1.5),
+      parallel: 4,
+    });
+    const second = (await claimQueueJob())!;
+    expect(second).toBeDefined();
+    await settleJob(second, fixtureResult, null);
+    await sql`update model_execution_limits set next_start_at=null`;
+    expect(await claimQueueJob()).toBeUndefined();
+    await saveExecutionPolicy(a.user, {
+      provider: "openai",
+      model: MODELS.openai.id,
+      rpm: 100,
+      tpm: 1000,
+      parallel: 4,
+    });
+    expect(await claimQueueJob()).toBeUndefined();
+    const detail = await getRun(a.user, run.id);
+    const blocked = detail.responses.find(
+      (r) => r.error_code === "request_exceeds_token_rate_limit",
+    )!;
+    expect(blocked.cost_micros).toBe(0);
+    expect(blocked.started_at).toBeNull();
+    const [usage] =
+      await sql`select kind,amount_micros from usage_records where response_id=${blocked.id}`;
+    expect(usage).toMatchObject({ kind: "estimated", amount_micros: 0 });
+  });
+
+  test("429 cools only the affected provider; late success/settings cannot erase Retry-After", async () => {
+    const { recordExecutionFeedback, saveExecutionPolicy, getExecutionStatus } =
+      await import("../src/lib/execution-control");
+    const a = await prepared();
+    await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openai", "gemini"],
+      samples: 1,
+    });
+    const job = (await claimQueueJob())!;
+    await recordExecutionFeedback(job, { retryAfterMs: 120000 }, "provider_http_429");
+    await settleJob(job, null, "provider_http_429");
+    const [paused] =
+      await sql`select paused_until from provider_cooldowns where org_id=${a.user.org_id}`;
+    expect(new Date(paused.paused_until).getTime()).toBeGreaterThan(Date.now() + 119000);
+    await recordExecutionFeedback(job, undefined, null);
+    const initial = (await getExecutionStatus(a.user)).find((s) => s.provider === job.provider)!;
+    await saveExecutionPolicy(a.user, { ...initial, rpm: 100 });
+    const current = (await getExecutionStatus(a.user)).find((s) => s.provider === job.provider)!;
+    expect(current.adaptiveParallel).toBe(1);
+    expect(current.pausedUntil).toBe(initial.pausedUntil);
+    const other = await claimQueueJob();
+    expect(other?.provider).not.toBe(job.provider);
+    expect(other).toBeDefined();
+    const [limited] =
+      await sql`select count(*)::int as n from ai_responses where provider=${job.provider} and status='running'`;
+    expect(limited.n).toBe(0);
+  });
+
+  test("learns lower header limits and pauses before exhausting returned tokens", async () => {
+    const { recordExecutionFeedback, getExecutionStatus } =
+      await import("../src/lib/execution-control");
+    const a = await prepared();
+    await createRun(a.user, { projectId: a.projectId, providers: ["openai"], samples: 1 });
+    const job = (await claimQueueJob())!;
+    await recordExecutionFeedback(
+      job,
+      { requestLimit: 20, tokenLimit: 40000, remainingTokens: 0, resetTokensMs: 90000 },
+      null,
+    );
+    const limits = (await getExecutionStatus(a.user)).find((s) => s.provider === "openai")!;
+    expect(limits.effectiveRpm).toBe(17);
+    expect(limits.effectiveTpm).toBe(34000);
+    await recordExecutionFeedback(job, { requestLimit: 100, tokenLimit: 200000 }, null);
+    const late = (await getExecutionStatus(a.user)).find((s) => s.provider === "openai")!;
+    expect(late.effectiveRpm).toBe(17);
+    expect(late.effectiveTpm).toBe(34000);
+    await sql`update model_execution_limits set observed_at=now()-interval '16 minutes' where org_id=${a.user.org_id}`;
+    await recordExecutionFeedback(job, { requestLimit: 100, tokenLimit: 200000 }, null);
+    expect(
+      (await getExecutionStatus(a.user)).find((s) => s.provider === "openai")!.effectiveRpm,
+    ).toBe(51);
+    expect(new Date(limits.pausedUntil!).getTime()).toBeGreaterThan(Date.now() + 89000);
+  });
+
+  test("limits are authorized, validated, persisted and isolated between organizations", async () => {
+    const a = await prepared(),
+      b = await owner("other-limit-owner");
+    const data = {
+      provider: "mimo",
+      model: MODELS.mimo.id,
+      rpm: 80,
+      tpm: 500000,
+      parallel: 6,
+      org_id: b.user.org_id,
+    };
+    expect((await route("POST", "execution/limits", "", data)).status).toBe(401);
+    expect(
+      (await route("POST", "execution/limits", a.cookie, data, "https://untrusted.example")).status,
+    ).toBe(403);
+    expect(
+      (await route("POST", "execution/limits", a.cookie, { ...data, parallel: 100 })).status,
+    ).toBe(400);
+    expect((await route("POST", "execution/limits", a.cookie, data)).status).toBe(200);
+    expect((await getState(a.user)).execution?.find((r) => r.provider === "mimo")).toMatchObject({
+      rpm: 80,
+      configured: true,
+    });
+    expect((await getState(b.user)).execution?.find((r) => r.provider === "mimo")).toMatchObject({
+      rpm: 100,
+      configured: false,
+    });
+    const [row] = await sql`select org_id from model_execution_limits`;
+    expect(row.org_id).toBe(a.user.org_id);
   });
 });

@@ -82,6 +82,7 @@ export type RunDetail = {
   citations: Citation[];
 };
 export type State = {
+  execution?: import("./execution-policy").ExecutionStatus[];
   user: User;
   projects: Project[];
   credentials: { provider: Provider; updated_at: string }[];

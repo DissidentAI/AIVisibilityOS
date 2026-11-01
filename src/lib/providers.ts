@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { safePublicUrl } from "./security";
+import { rateFeedback, type RateFeedback } from "./execution-policy";
 import {
   MODELS,
   modelConfiguration,
@@ -68,6 +69,7 @@ export function reserveMicros(
   );
 }
 export type ProviderResult = {
+  rateFeedback?: RateFeedback;
   status: "succeeded" | "invalid";
   text: string;
   model: string | null;
@@ -457,7 +459,10 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
   };
 }
 export class ProviderError extends Error {
-  constructor(public code: string) {
+  constructor(
+    public code: string,
+    public rateFeedback?: RateFeedback,
+  ) {
     super(code);
   }
 }
@@ -640,7 +645,10 @@ export async function callProvider(
       throw new ProviderError("provider_http_400");
     }
     await response.body?.cancel();
-    throw new ProviderError(`provider_http_${response.status}`);
+    throw new ProviderError(
+      `provider_http_${response.status}`,
+      rateFeedback(provider, response.headers),
+    );
   }
   // Bound responses without logging provider payloads or credentials.
   const reader = response.body?.getReader();
@@ -657,8 +665,27 @@ export async function callProvider(
     }
     chunks.push(value);
   }
+  let payload: unknown;
   try {
-    return parseResponse(provider, JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new ProviderError("invalid_provider_payload");
+  }
+  // OpenRouter can return a non-streaming error envelope after HTTP 200.
+  // Preserve only the documented numeric status; upstream messages may contain secrets.
+  const envelope = z
+    .object({ error: z.object({ code: z.union([z.literal(429), z.literal(503)]) }) })
+    .safeParse(payload);
+  if (provider === "openrouter" && envelope.success)
+    throw new ProviderError(
+      `provider_http_${envelope.data.error.code}`,
+      rateFeedback(provider, response.headers),
+    );
+  try {
+    return {
+      ...parseResponse(provider, payload),
+      rateFeedback: rateFeedback(provider, response.headers),
+    };
   } catch {
     throw new ProviderError("invalid_provider_payload");
   }

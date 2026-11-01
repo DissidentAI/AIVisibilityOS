@@ -4,7 +4,10 @@ import { setTimeout } from "node:timers/promises";
 import { sql } from "./db/client";
 import { maintenance, workOnce } from "./lib/queue";
 import { dispatchSchedule } from "./lib/schedules";
+import { workerConcurrency } from "./lib/execution-control";
 const id = randomUUID();
+const concurrency = workerConcurrency();
+const active = new Set<Promise<unknown>>();
 let stopping = false;
 process.on("SIGTERM", () => {
   stopping = true;
@@ -18,25 +21,40 @@ async function heartbeat() {
 const timer = setInterval(() => {
   heartbeat().catch(() => console.error("worker_heartbeat_failed"));
 }, 10_000);
-console.log("Measurement worker started; official API calls only.");
+console.log(`Measurement worker started; up to ${concurrency} regulated concurrent API calls.`);
 try {
   await heartbeat();
   let lastMaintenance = 0;
+  let lastSchedule = 0;
+  let retryClaimsAfter = 0;
   while (!stopping) {
     try {
       if (Date.now() - lastMaintenance > 60_000) {
         await maintenance();
         lastMaintenance = Date.now();
       }
-      await dispatchSchedule();
-      if (!(await workOnce())) await setTimeout(2000);
-      else await setTimeout(1000); // single worker <= 60 requests/minute, no implicit paid retries
+      if (Date.now() - lastSchedule > 5000) {
+        await dispatchSchedule();
+        lastSchedule = Date.now();
+      }
+      if (active.size < concurrency && Date.now() >= retryClaimsAfter) {
+        const task = workOnce().catch(() => {
+          retryClaimsAfter = Date.now() + 5000;
+          console.error("worker_job_failed");
+        });
+        active.add(task);
+        void task.finally(() => active.delete(task));
+      }
+      // Claiming is paced in PostgreSQL per provider/model. A pending HTTP call
+      // doesn't block another eligible model, heartbeat, schedule or shutdown.
+      await setTimeout(250);
     } catch {
       console.error("worker_iteration_failed");
       await setTimeout(5000);
     }
   }
 } finally {
+  await Promise.allSettled(active);
   clearInterval(timer);
   await sql`delete from worker_heartbeats where id=${id}`;
   await sql.end();

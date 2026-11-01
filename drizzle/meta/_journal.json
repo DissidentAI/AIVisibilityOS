@@ -36,6 +36,20 @@
       "when": 1793499888366,
       "tag": "0004_large_miracleman",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793502714006,
+      "tag": "0005_clumsy_tyrannus",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793502778453,
+      "tag": "0006_stiff_mongu",
+      "breakpoints": true
     }
   ]
 }

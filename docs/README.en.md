@@ -63,3 +63,9 @@ No Hostinger approval or referral URL is fabricated. Only an official issued dep
 ## Interface and remote preview
 
 The responsive amber-and-ink interface includes glass surfaces, animated navigation, dialogs, onboarding and charts, with light/dark themes and an animation pause control. OS reduced-motion preferences are respected. See [design and accessibility](DESIGN.md) and [temporary HTTPS access from a phone](REMOTE-PREVIEW.md).
+
+## Parallel scans and readable evidence
+
+Scans now use concurrent, PostgreSQL-coordinated calls with per-model ceilings, 15% request/token headroom, gradual ramp-up and provider cooldowns. Set your account quotas in **Settings → Scan speed**. See [execution controls](EXECUTION.md) for official sources, defaults and limitations.
+
+AI answers render Markdown with safe links, tables and code. Copy or download the displayed text, or switch to the unchanged Markdown source for `.md` export. See [answer exports](ANSWER-EXPORTS.md). The supplied A/star logo is used throughout the interface.

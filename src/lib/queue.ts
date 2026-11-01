@@ -14,7 +14,10 @@ import { detectMentions } from "./measurement";
 import type { Snapshot } from "./types";
 import { snapshotJson } from "./snapshot-json";
 import { requestEndpoint } from "./provider-config";
+import { claimRegulatedJob, recordExecutionFeedback } from "./execution-control";
+import type { RateFeedback } from "./execution-policy";
 export type Job = {
+  rate_tokens?: number;
   id: string;
   org_id: string;
   run_id: string;
@@ -23,7 +26,12 @@ export type Job = {
   model: string;
   snapshot: Snapshot;
 };
-export async function claimJob(): Promise<Job | undefined> {
+export async function claimJob(
+  options: { unregulatedTestOnly?: boolean } = {},
+): Promise<Job | undefined> {
+  if (!options.unregulatedTestOnly) return claimRegulatedJob();
+  if (!process.env.DATABASE_URL || !new URL(process.env.DATABASE_URL).pathname.endsWith("_test"))
+    throw new Error("Unregulated claims are restricted to isolated test databases");
   // Pending reservations remain counted across months. Once attempted, charge the
   // reservation to the UTC month of the attempt, not the month it was queued.
   const [job] = await sql<Job[]>`
@@ -112,11 +120,15 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
     }
   });
 }
-export async function workOnce(adapter: typeof callProvider = callProvider) {
-  const job = await claimJob();
+export async function workOnce(
+  adapter: typeof callProvider = callProvider,
+  options: { unregulatedTestOnly?: boolean } = {},
+) {
+  const job = await claimJob(options);
   if (!job) return false;
   let result: ProviderResult | null = null,
     error: string | null = null;
+  let feedback: RateFeedback | undefined;
   try {
     const [credential] =
       await sql`select encrypted_key from credentials where org_id=${job.org_id} and provider=${job.provider}`;
@@ -156,7 +168,9 @@ export async function workOnce(adapter: typeof callProvider = callProvider) {
     );
   } catch (e) {
     error = e instanceof ProviderError ? e.code : "execution_failed";
+    feedback = e instanceof ProviderError ? e.rateFeedback : undefined;
   }
+  await recordExecutionFeedback(job, result?.rateFeedback ?? feedback, error);
   await settleJob(job, result, error);
   return true;
 }

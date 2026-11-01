@@ -17,7 +17,6 @@ import {
   Moon,
   Play,
   Plus,
-  Radio,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -34,6 +33,7 @@ import {
   Lightbulb,
   RotateCcw,
 } from "lucide-react";
+import { BrandMark } from "./ui/brand-mark";
 import { Button } from "./ui/button";
 import { motion } from "motion/react";
 import { PageTransition, useMotionPreferences } from "./ui/motion";
@@ -70,6 +70,7 @@ import { ProjectWizard } from "./workspace/project-wizard";
 import { CampaignDialog } from "./workspace/campaign-dialog";
 import { SchedulesPanel } from "./workspace/schedules-panel";
 import { ReportsPanel } from "./workspace/reports-panel";
+import { ExecutionSettings } from "./workspace/execution-settings";
 import { GroundedAnswer } from "./workspace/grounded-answer";
 import { HistoryPanel } from "./workspace/history-panel";
 import { RetryDialog } from "./workspace/retry-dialog";
@@ -332,7 +333,7 @@ export function Workspace() {
     return (
       <main className="auth" aria-busy="true">
         <div className="loading-mark" role="status">
-          <Radio size={32} />
+          <BrandMark large />
           <p>{t("Ouverture de votre espace…", "Opening your workspace…")}</p>
         </div>
       </main>
@@ -342,9 +343,7 @@ export function Workspace() {
       <main className="auth auth-screen">
         <div className="auth-controls">{controls}</div>
         <div className="auth-brand">
-          <div className="logo">
-            <Radio size={22} />
-          </div>
+          <BrandMark />
           <span>
             AI Visibility <b>OS</b>
           </span>
@@ -374,7 +373,7 @@ export function Workspace() {
               </div>
               <div className="signal-orbit orbit-three" />
               <div className="signal-core">
-                <Radio size={40} strokeWidth={1.3} />
+                <BrandMark large />
                 <span>AI VISIBILITY</span>
               </div>
               <span className="signal-chip chip-one">
@@ -523,9 +522,7 @@ export function Workspace() {
             <X size={19} />
           </Button>
           <a className="brand" href="/">
-            <div className="logo">
-              <Radio size={21} />
-            </div>
+            <BrandMark />
             <span>
               AI Visibility <b>OS</b>
             </span>
@@ -797,7 +794,13 @@ export function Workspace() {
                     )}
                   </div>
                   {detail && ["overview", "history", "opportunities"].includes(tab) && (
-                    <RunStatus detail={detail} t={t} onRetry={openRetry} onRun={openRun} />
+                    <RunStatus
+                      detail={detail}
+                      t={t}
+                      onRetry={openRetry}
+                      onRun={openRun}
+                      execution={state.execution}
+                    />
                   )}
                   {tab === "opportunities" && (
                     <OpportunitiesPanel detail={detail} t={t} date={date} onOpen={setResponse} />
@@ -1324,6 +1327,7 @@ export function Workspace() {
                       )}
                     </div>
                   </section>
+                  <ExecutionSettings rows={state.execution ?? []} t={t} onSaved={refresh} />
                   <section className="card">
                     <div className="card-heading">
                       <div>

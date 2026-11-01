@@ -206,6 +206,10 @@ export function friendly(code: string, t: Translate) {
       "Appel non envoyé : la clé a été retirée. Reconnectez le fournisseur dans Paramètres.",
       "Request not sent: the key was removed. Reconnect the provider in Settings.",
     ),
+    request_exceeds_token_rate_limit: t(
+      "Aucun appel envoyé : la réserve de tokens dépasse le plafond configuré. Vérifiez les tokens/minute dans Paramètres → Vitesse des scans, puis réessayez.",
+      "No request sent: the token reservation exceeds the configured limit. Check tokens/minute in Settings → Scan speed, then retry.",
+    ),
     provider_http_429: t(
       "Le fournisseur limite les appels ou le quota est épuisé (429). Vérifiez votre quota et patientez avant de réessayer.",
       "The provider is rate limiting requests or the quota is exhausted (429). Check your quota and wait before retrying.",
