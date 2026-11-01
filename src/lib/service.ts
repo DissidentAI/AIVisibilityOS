@@ -6,9 +6,7 @@ import { projects as projectTable } from "../db/schema";
 import { AppError } from "./errors";
 import { digest, encryptSecret } from "./security";
 import {
-  MODELS,
   PROVIDERS,
-  MAX_OUTPUT,
   PRICE_DATE,
   SEARCH_PRICING,
   MEASUREMENT_MODES,
@@ -30,6 +28,9 @@ import type {
   Snapshot,
 } from "./types";
 import { projectSchema, ProjectValidationError } from "./project-validation";
+import { OPENROUTER_MODEL_IDS, modelConfiguration, supportsWebSearch } from "./provider-config";
+import { requestOptions } from "./providers";
+import { snapshotJson } from "./snapshot-json";
 export { projectSchema, brandSchema } from "./project-validation";
 export const uuidSchema = z.uuid();
 export function ceilingMicros() {
@@ -119,10 +120,11 @@ export const runSchema = z.object({
   providers: z
     .array(z.enum(PROVIDERS))
     .min(1)
-    .max(2)
+    .max(PROVIDERS.length)
     .refine((a) => new Set(a).size === a.length),
   samples: z.number().int().min(1).max(5),
   mode: z.enum(MEASUREMENT_MODES).default("baseline"),
+  openrouterModel: z.enum(OPENROUTER_MODEL_IDS).default(OPENROUTER_MODEL_IDS[0]),
   expectedConfigHash: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -133,6 +135,15 @@ export async function snapshotFor(
   user: User,
   p: z.infer<typeof runSchema>,
 ): Promise<Snapshot> {
+  if (p.mode === "web" && p.providers.some((provider) => !supportsWebSearch(provider)))
+    throw new AppError("web_search_unsupported");
+  const providers = [...p.providers].sort();
+  const models = Object.fromEntries(
+    providers.map((provider) => [
+      provider,
+      modelConfiguration(provider, provider === "openrouter" ? p.openrouterModel : undefined)!,
+    ]),
+  );
   const [project] = await tx<
     Project[]
   >`select * from projects where id=${p.projectId} and org_id=${user.org_id} for share`;
@@ -153,19 +164,27 @@ export async function snapshotFor(
     },
     brands: bs,
     queries: qs,
-    providers: [...p.providers].sort(),
-    models: Object.fromEntries(p.providers.map((pr) => [pr, MODELS[pr].id])),
+    providers,
+    models: Object.fromEntries(providers.map((pr) => [pr, models[pr].id])),
     samples: p.samples,
     methodology: METHODOLOGY,
     system: instructions(project.language, project.country),
     parameters: {
-      max_output_tokens: MAX_OUTPUT,
-      temperature: 0.7,
       search: p.mode === "web",
       mode: p.mode,
       countryMode: "prompt_context_only",
       channel: "official_api",
-      geminiThinkingBudget: 0,
+      providers: Object.fromEntries(
+        providers.map((pr) => [
+          pr,
+          {
+            endpoint: models[pr].endpoint,
+            channel: pr === "openrouter" ? "openrouter_api" : "official_api",
+            request: requestOptions(pr, p.mode, models[pr]),
+            timeoutMs: models[pr].reasoning === "low" ? 90_000 : 60_000,
+          },
+        ]),
+      ),
       ...(p.mode === "web"
         ? {
             openaiTool: "web_search",
@@ -178,7 +197,7 @@ export async function snapshotFor(
     pricing: {
       date: PRICE_DATE,
       currency: "USD",
-      models: MODELS,
+      models,
       search: SEARCH_PRICING,
       searchEstimate:
         "full_paid_rate_no_free_allowance; OpenAI fixed search-content block added conservatively to reported input usage",
@@ -197,6 +216,7 @@ export function snapshotReservation(snapshot: Snapshot) {
             q.text,
             snapshot.system,
             snapshot.parameters.search === true ? "web" : "baseline",
+            modelConfiguration(pr, snapshot.models[pr]),
           ) *
             snapshot.samples,
         0,
@@ -225,7 +245,7 @@ export async function estimateRun(user: User, data: unknown) {
       responses: snapshot.queries.length * snapshot.samples * snapshot.providers.length,
       ...budget,
       affordable: reservedMicros <= Math.min(budget.orgRemaining, budget.installationRemaining),
-      configHash: digest(JSON.stringify(snapshot)),
+      configHash: digest(snapshotJson(snapshot)),
       snapshot,
     };
   });
@@ -245,7 +265,7 @@ export async function enqueueSnapshot(
     await tx`select count(*)::int as n from ai_responses a join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where a.org_id=${user.org_id} and r.project_id=${projectId} and a.status in ('queued','running')`;
   if (pending.n > 0) throw new AppError("campaign_already_running", 409);
   if (
-    snapshot.providers.some((p) => snapshot.models[p] !== MODELS[p].id) ||
+    snapshot.providers.some((p) => !modelConfiguration(p, snapshot.models[p])) ||
     snapshot.pricing.date !== PRICE_DATE
   )
     throw new AppError("model_configuration_changed", 409);
@@ -259,15 +279,15 @@ export async function enqueueSnapshot(
     budget = await budgetStatus(tx, user);
   if (total > Math.min(budget.orgRemaining, budget.installationRemaining))
     throw new AppError("budget_exceeded", 409);
-  const hash = digest(JSON.stringify(snapshot));
+  const hash = digest(snapshotJson(snapshot));
   const [run] =
     await tx`insert into measurement_runs (org_id,project_id,config_hash,snapshot) values (${user.org_id},${projectId},${hash},${JSON.stringify(snapshot)}::jsonb) returning id`;
   for (const q of snapshot.queries)
     for (const provider of snapshot.providers)
       for (let sample = 1; sample <= snapshot.samples; sample++) {
         const [response] =
-          await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,sample,parameters) values (${user.org_id},${run.id},${q.text},${provider},${snapshot.models[provider]},${sample},${JSON.stringify(snapshot.parameters)}::jsonb) returning id`;
-        await tx`insert into usage_records (org_id,response_id,amount_micros) values (${user.org_id},${response.id},${reserveMicros(provider, q.text, snapshot.system, snapshot.parameters.search === true ? "web" : "baseline")})`;
+          await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,channel,sample,parameters) values (${user.org_id},${run.id},${q.text},${provider},${snapshot.models[provider]},${provider === "openrouter" ? "openrouter_api" : "official_api"},${sample},${JSON.stringify(snapshot.parameters)}::jsonb) returning id`;
+        await tx`insert into usage_records (org_id,response_id,amount_micros) values (${user.org_id},${response.id},${reserveMicros(provider, q.text, snapshot.system, snapshot.parameters.search === true ? "web" : "baseline", modelConfiguration(provider, snapshot.models[provider]))})`;
       }
   return { id: run.id as string, reservedMicros: total };
 }
@@ -277,7 +297,7 @@ export async function createRun(user: User, data: unknown) {
     await tx`select pg_advisory_xact_lock(824762)`;
     await tx`select id from organizations where id=${user.org_id} for update`;
     const snapshot = await snapshotFor(tx, user, p);
-    if (p.expectedConfigHash && p.expectedConfigHash !== digest(JSON.stringify(snapshot)))
+    if (p.expectedConfigHash && p.expectedConfigHash !== digest(snapshotJson(snapshot)))
       throw new AppError("configuration_changed", 409);
     return enqueueSnapshot(tx, user, p.projectId, snapshot);
   });

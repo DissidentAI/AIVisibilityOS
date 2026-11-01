@@ -23,6 +23,7 @@ import { digest, hashPassword } from "../src/lib/security";
 import { authenticate, requireUser, sessionToken, rateLimit } from "../src/lib/auth";
 import { GET, POST, DELETE } from "../src/app/api/[[...path]]/route";
 import type { User } from "../src/lib/types";
+import { parseResponse } from "../src/lib/providers";
 beforeAll(async () => {
   if (!new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"))
     throw new Error("Unsafe test database");
@@ -80,6 +81,128 @@ async function route(
   );
 }
 describe("PostgreSQL integration, authorization and durable measurements", () => {
+  test("Kimi and selected OpenRouter models run through the durable worker with safe accounting", async () => {
+    const a = await prepared();
+    for (const provider of ["kimi", "openrouter"])
+      await saveCredential(a.user, { provider, key: "synthetic-private-provider-key" });
+    const config = {
+      projectId: a.projectId,
+      providers: ["kimi", "openrouter"],
+      samples: 1,
+      openrouterModel: "moonshotai/kimi-k3.1-pro",
+    };
+    const estimate = await estimateRun(a.user, config);
+    expect(
+      (await estimateRun(a.user, { ...config, providers: ["openrouter", "kimi"] })).configHash,
+    ).toBe(estimate.configHash);
+    expect(estimate.responses).toBe(20);
+    expect(
+      (
+        await estimateRun(a.user, {
+          ...config,
+          providers: ["openai", "gemini", "kimi", "openrouter"],
+        })
+      ).responses,
+    ).toBe(40);
+    expect(estimate.snapshot.models.openrouter).toBe("moonshotai/kimi-k3.1-pro");
+    expect(estimate.reservedMicros).toBeGreaterThan(20 * 81920);
+    const run = await createRun(a.user, { ...config, expectedConfigHash: estimate.configHash });
+    while (
+      await workOnce(async (provider, key, _query, _system, mode, model) => {
+        expect(key).toBe("synthetic-private-provider-key");
+        expect(mode).toBe("baseline");
+        expect(model).toBe(provider === "kimi" ? "kimi-k3.1-pro" : "moonshotai/kimi-k3.1-pro");
+        return parseResponse(provider, {
+          id: "synthetic-response",
+          model,
+          provider: "Synthetic upstream",
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: "Karburo répond à cette question.",
+                reasoning_content: "Synthetic unscored reasoning",
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 200,
+            completion_tokens: 100,
+            prompt_tokens_details: { cached_tokens: 50 },
+            cost: 0.001234,
+          },
+        });
+      })
+    ) {
+      /* Drain test jobs with an explicitly synthetic adapter. */
+    }
+    const detail = await getRun(a.user, run.id);
+    expect(detail.run.valid).toBe(20);
+    expect(detail.mentions).toHaveLength(20);
+    expect(detail.citations).toEqual([]);
+    const routed = detail.responses.find((r) => r.provider === "openrouter")!;
+    expect(routed.cost_micros).toBe(1234);
+    expect(routed.channel).toBe("openrouter_api");
+    expect(routed.parameters.execution).toEqual({
+      servingProvider: "Synthetic upstream",
+      costSource: "provider_reported",
+    });
+    expect(detail.responses.find((r) => r.provider === "kimi")!.cost_micros).toBe(1310);
+    const b = await owner("other");
+    await expect(getRun(b.user, run.id)).rejects.toThrow("not_found");
+    expect(JSON.stringify(await getState(a.user))).not.toContain("synthetic-private-provider-key");
+    const [credential] =
+      await sql`select encrypted_key from credentials where org_id=${a.user.org_id} and provider='kimi'`;
+    expect(credential.encrypted_key).not.toContain("synthetic-private-provider-key");
+  });
+  test("new providers retain budget limits and reject unsupported search and models before enqueue", async () => {
+    const a = await prepared();
+    await saveCredential(a.user, { provider: "kimi", key: "synthetic-private-kimi-key" });
+    const config = { projectId: a.projectId, providers: ["kimi"], samples: 1 };
+    await expect(estimateRun(a.user, { ...config, mode: "web" })).rejects.toThrow(
+      "web_search_unsupported",
+    );
+    await expect(
+      createRun(a.user, {
+        ...config,
+        providers: ["openrouter"],
+        openrouterModel: "openrouter/auto",
+      }),
+    ).rejects.toThrow();
+    await sql`update organizations set budget_micros=100 where id=${a.user.org_id}`;
+    await expect(createRun(a.user, config)).rejects.toThrow("budget_exceeded");
+    expect(await sql`select * from ai_responses`).toHaveLength(0);
+    expect(await sql`select * from usage_records`).toHaveLength(0);
+  });
+  test("scheduled OpenRouter campaigns keep their selected model and request parameters", async () => {
+    const a = await prepared();
+    await saveCredential(a.user, { provider: "openrouter", key: "synthetic-private-router-key" });
+    const estimate = await estimateRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openrouter"],
+      openrouterModel: "moonshotai/kimi-k3.1-pro",
+      samples: 1,
+    });
+    await saveSchedule(a.user, {
+      projectId: a.projectId,
+      providers: ["openrouter"],
+      openrouterModel: "moonshotai/kimi-k3.1-pro",
+      samples: 1,
+      intervalHours: 24,
+      firstRunAt: new Date(Date.now() + 120000).toISOString(),
+    });
+    await sql`update measurement_schedules set next_run_at=now()-interval '1 minute'`;
+    expect(await dispatchSchedule()).toBe(true);
+    const job = await claimJob();
+    expect(job?.model).toBe("moonshotai/kimi-k3.1-pro");
+    expect((await getRun(a.user, job!.run_id)).run.config_hash).toBe(estimate.configHash);
+    expect(job?.snapshot.parameters.providers).toMatchObject({
+      openrouter: {
+        channel: "openrouter_api",
+        request: { model: "moonshotai/kimi-k3.1-pro", max_tokens: 8192 },
+      },
+    });
+  });
   test("project API accepts copied page URLs and stores canonical domains", async () => {
     const a = await owner();
     const response = await route("POST", "projects", a.cookie, {

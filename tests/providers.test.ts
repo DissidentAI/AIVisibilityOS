@@ -1,4 +1,5 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
+import { MODELS, OPENROUTER_MODELS } from "../src/lib/provider-config";
 import {
   parseResponse,
   callProvider,
@@ -34,6 +35,146 @@ export const openaiFixture = {
 };
 describe("official API normalization with synthetic fixtures", () => {
   afterEach(() => vi.restoreAllMocks());
+  const chatFixture = {
+    id: "synthetic-chat",
+    model: "kimi-k3.1-pro",
+    provider: "Synthetic serving provider",
+    choices: [
+      {
+        finish_reason: "stop",
+        message: {
+          content: "Karburo et Gasoil Now.",
+          reasoning_content: "Synthetic private reasoning mentioning a different brand",
+        },
+      },
+    ],
+    usage: {
+      prompt_tokens: 200,
+      completion_tokens: 100,
+      completion_tokens_details: { reasoning_tokens: 60 },
+      prompt_tokens_details: { cached_tokens: 50, cache_write_tokens: 100 },
+      cost: 0.001234,
+    },
+  };
+  test("Kimi counts the final answer only and preserves total reasoning-inclusive usage", () => {
+    const result = parseResponse("kimi", chatFixture);
+    expect(result.text).toBe("Karburo et Gasoil Now.");
+    expect(result.status).toBe("succeeded");
+    expect(result.output).toBe(100);
+    expect(result.cachedInput).toBe(50);
+    expect(result.reportedCostMicros).toBeNull();
+    expect(result.citations).toEqual([]);
+  });
+  test("OpenRouter preserves the serving provider, returned model and reported cost including zero", () => {
+    const result = parseResponse("openrouter", chatFixture);
+    expect(result.servingProvider).toBe("Synthetic serving provider");
+    expect(result.model).toBe("kimi-k3.1-pro");
+    expect(result.reportedCostMicros).toBe(1234);
+    expect(
+      parseResponse("openrouter", { ...chatFixture, usage: { ...chatFixture.usage, cost: 0 } })
+        .reportedCostMicros,
+    ).toBe(0);
+    expect(
+      parseResponse("openrouter", { ...chatFixture, usage: undefined }).reportedCostMicros,
+    ).toBeNull();
+  });
+  test("chat truncations, empty answers, refusals and unfinished tool calls are invalid", () => {
+    for (const message of [
+      { content: "" },
+      { content: "No", refusal: "Refused" },
+      { content: "Partial", tool_calls: [{}] },
+    ])
+      expect(
+        parseResponse("kimi", { ...chatFixture, choices: [{ finish_reason: "stop", message }] })
+          .status,
+      ).toBe("invalid");
+    expect(
+      parseResponse("openrouter", {
+        ...chatFixture,
+        choices: [{ finish_reason: "length", message: { content: "Partial" } }],
+      }).status,
+    ).toBe("invalid");
+    expect(() =>
+      parseResponse("openrouter", { error: { message: "Synthetic upstream error" } }),
+    ).toThrow();
+    expect(() =>
+      parseResponse("openrouter", { ...chatFixture, usage: { ...chatFixture.usage, cost: -1 } }),
+    ).toThrow();
+  });
+  test("Kimi uses its documented fixed endpoint, reasoning budget and cache TTL", async () => {
+    const mock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(chatFixture)));
+    await callProvider("kimi", "fixture-key-only", "Question?", "French");
+    const [url, options] = mock.mock.calls[0];
+    expect(url).toBe("https://api.moonshot.ai/v1/chat/completions");
+    expect(options?.headers).toMatchObject({ Authorization: "Bearer fixture-key-only" });
+    const body = JSON.parse(options!.body as string);
+    expect(body).toMatchObject({
+      model: "kimi-k3.1-pro",
+      max_completion_tokens: 8192,
+      reasoning_effort: "low",
+      prompt_cache_options: { mode: "implicit", ttl: "5m" },
+      messages: [
+        { role: "system", content: "French" },
+        { role: "user", content: "Question?" },
+      ],
+    });
+    expect(body.temperature).toBeUndefined();
+    expect(body.thinking).toBeUndefined();
+    expect(options?.redirect).toBe("error");
+    expect(reserveMicros("kimi", "Question?", "French")).toBeGreaterThan(8192 * MODELS.kimi.output);
+  });
+  test("OpenRouter fixes the selected model and bounds routing prices without model fallbacks", async () => {
+    const mock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(chatFixture)));
+    await callProvider(
+      "openrouter",
+      "fixture-router-key",
+      "Question?",
+      "French",
+      "baseline",
+      "moonshotai/kimi-k3.1-pro",
+    );
+    const [url, options] = mock.mock.calls[0];
+    expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    const body = JSON.parse(options!.body as string);
+    expect(body).toMatchObject({
+      model: "moonshotai/kimi-k3.1-pro",
+      max_tokens: 8192,
+      reasoning: { effort: "low", exclude: true },
+      provider: {
+        require_parameters: true,
+        max_price: { prompt: 2, completion: 10, request: 0 },
+        data_collection: "deny",
+      },
+    });
+    expect(body.models).toBeUndefined();
+    expect(body.plugins).toBeUndefined();
+    expect(
+      reserveMicros(
+        "openrouter",
+        "Q?",
+        "fr",
+        "baseline",
+        OPENROUTER_MODELS["moonshotai/kimi-k3.1-pro"],
+      ),
+    ).toBeGreaterThan(81920);
+  });
+  test("unsupported search and arbitrary model IDs are rejected before a paid request", async () => {
+    const mock = vi.spyOn(globalThis, "fetch");
+    for (const provider of ["kimi", "openrouter"] as const) {
+      await expect(callProvider(provider, "fixture-key", "Q?", "fr", "web")).rejects.toThrow(
+        "web_search_unsupported",
+      );
+      expect(() => reserveMicros(provider, "Q?", "fr", "web")).toThrow("web_search_unsupported");
+    }
+    await expect(
+      callProvider("openrouter", "fixture-key", "Q?", "fr", "baseline", "openrouter/auto"),
+    ).rejects.toThrow("model_configuration_changed");
+    expect(mock).not.toHaveBeenCalled();
+  });
   test("OpenAI preserves returned model, usage and structured citation", () => {
     const r = parseResponse("openai", openaiFixture);
     expect(r.status).toBe("succeeded");

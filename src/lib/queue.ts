@@ -3,6 +3,8 @@ import { decryptSecret } from "./security";
 import {
   callProvider,
   MODELS,
+  modelConfiguration,
+  requestOptions,
   SEARCH_PRICING,
   ProviderError,
   type Provider,
@@ -10,6 +12,7 @@ import {
 } from "./providers";
 import { detectMentions } from "./measurement";
 import type { Snapshot } from "./types";
+import { snapshotJson } from "./snapshot-json";
 export type Job = {
   id: string;
   org_id: string;
@@ -45,23 +48,36 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
     if (!existing || existing.status !== "running") return;
     const pricing = job.snapshot.pricing.models as typeof MODELS;
     const searchPricing = (job.snapshot.pricing.search ?? SEARCH_PRICING) as typeof SEARCH_PRICING;
+    const search = searchPricing[job.provider as keyof typeof SEARCH_PRICING];
     const searchCost =
       job.snapshot.parameters.search === true && result?.grounding
         ? result.grounding.toolCalls *
-          (searchPricing[job.provider].toolMicros +
-            searchPricing[job.provider].contentTokens * pricing[job.provider].input)
+          (search.toolMicros + search.contentTokens * pricing[job.provider].input)
         : 0;
+    const reported = job.provider === "openrouter" ? result?.reportedCostMicros : null;
+    const cachedInput = job.provider === "kimi" ? (result?.cachedInput ?? 0) : 0;
     const cost =
-      result?.input != null &&
-      result?.output != null &&
-      (job.snapshot.parameters.search !== true || result.grounding != null)
-        ? Math.ceil(
-            result.input * pricing[job.provider].input +
-              result.output * pricing[job.provider].output +
-              searchCost,
-          )
-        : null;
+      reported != null
+        ? reported
+        : result?.input != null &&
+            result?.output != null &&
+            (job.snapshot.parameters.search !== true || result.grounding != null)
+          ? Math.ceil(
+              (result.input - cachedInput) * pricing[job.provider].input +
+                cachedInput * (pricing[job.provider].cachedInput ?? pricing[job.provider].input) +
+                result.output * pricing[job.provider].output +
+                searchCost,
+            )
+          : null;
     await tx`update ai_responses set status=${result?.status ?? "failed"}, answer=${result?.text ?? null}, returned_model=${result?.model ?? null}, raw=${result ? JSON.stringify(result.raw) : null}::jsonb, grounding=${result?.grounding ? JSON.stringify(result.grounding) : null}::jsonb, request_id=${result?.requestId ?? null}, input_tokens=${result?.input ?? null}, output_tokens=${result?.output ?? null}, cost_micros=${cost}, error_code=${errorCode ?? (result?.status === "invalid" ? "incomplete_or_refused" : null)}, finished_at=now() where id=${job.id} and org_id=${job.org_id}`;
+    if (result)
+      await tx`update ai_responses set parameters=parameters || ${JSON.stringify({
+        execution: {
+          servingProvider: result.servingProvider ?? null,
+          costSource:
+            reported != null ? "provider_reported" : cost != null ? "token_estimate" : "unknown",
+        },
+      })}::jsonb where id=${job.id} and org_id=${job.org_id}`;
     if (cost != null)
       await tx`update usage_records set amount_micros=${cost}, kind='estimated' where response_id=${job.id} and org_id=${job.org_id}`;
     else
@@ -83,7 +99,24 @@ export async function workOnce(adapter: typeof callProvider = callProvider) {
     const [credential] =
       await sql`select encrypted_key from credentials where org_id=${job.org_id} and provider=${job.provider}`;
     if (!credential) throw new ProviderError("credentials_missing");
-    if (job.model !== MODELS[job.provider].id)
+    const model = modelConfiguration(job.provider, job.model);
+    if (!model) throw new ProviderError("model_configuration_changed");
+    const frozen = (
+      job.snapshot.parameters.providers as
+        Record<string, { endpoint: string; request: unknown }> | undefined
+    )?.[job.provider];
+    if (
+      frozen &&
+      (frozen.endpoint !== model.endpoint ||
+        snapshotJson(frozen.request) !==
+          snapshotJson(
+            requestOptions(
+              job.provider,
+              job.snapshot.parameters.search === true ? "web" : "baseline",
+              model,
+            ),
+          ))
+    )
       throw new ProviderError("model_configuration_changed");
     const key = decryptSecret(credential.encrypted_key, `${job.org_id}:${job.provider}`);
     result = await adapter(
@@ -92,6 +125,7 @@ export async function workOnce(adapter: typeof callProvider = callProvider) {
       job.query_text,
       job.snapshot.system,
       job.snapshot.parameters.search === true ? "web" : "baseline",
+      job.model,
     );
   } catch (e) {
     error = e instanceof ProviderError ? e.code : "execution_failed";

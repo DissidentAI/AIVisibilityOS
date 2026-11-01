@@ -215,6 +215,10 @@ export function friendly(code: string, t: Translate) {
       "Connectez une clé pour chaque fournisseur sélectionné.",
       "Connect a key for each selected provider.",
     ),
+    web_search_unsupported: t(
+      "Sélectionnez le mode sans recherche web pour utiliser Kimi ou OpenRouter.",
+      "Select the mode without web search to use Kimi or OpenRouter.",
+    ),
     campaign_already_running: t(
       "Une campagne est en cours. Attendez sa fin.",
       "A campaign is already running. Wait for it to finish.",

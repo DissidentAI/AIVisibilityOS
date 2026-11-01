@@ -1,23 +1,19 @@
 import { z } from "zod";
 import { safePublicUrl } from "./security";
-export const PROVIDERS = ["openai", "gemini"] as const;
-export type Provider = (typeof PROVIDERS)[number];
-// USD / million tokens, captured 2026-10-31. Estimates, not billing invoices.
-export const MODELS = {
-  openai: {
-    id: "gpt-4.1-mini-2025-04-14",
-    input: 0.4,
-    output: 1.6,
-    endpoint: "https://api.openai.com/v1/responses",
-  },
-  gemini: {
-    id: "gemini-2.5-flash-lite",
-    input: 0.1,
-    output: 0.4,
-    endpoint:
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
-  },
-} as const;
+import {
+  MODELS,
+  modelConfiguration,
+  supportsWebSearch,
+  type Provider,
+  type ModelConfiguration,
+} from "./provider-config";
+export {
+  PROVIDERS,
+  MODELS,
+  modelConfiguration,
+  supportsWebSearch,
+  type Provider,
+} from "./provider-config";
 export const MEASUREMENT_MODES = ["baseline", "web"] as const;
 export type MeasurementMode = (typeof MEASUREMENT_MODES)[number];
 // Full paid rates: provider free allowances cannot be known across installations.
@@ -33,7 +29,7 @@ export type Grounding = {
   searchEntryHtml: string | null;
   links: { end: number; url: string; title: string }[];
 };
-export const PRICE_DATE = "2026-10-31";
+export const PRICE_DATE = "2026-11-01";
 export function instructions(language: string, country: string) {
   return `Answer the user's question in ${language === "fr" ? "French" : "English"}. The user is interested in the market ${country}. Be factual and indicate uncertainty. Do not invent sources. This is a fresh conversation.`;
 }
@@ -42,15 +38,19 @@ export function reserveMicros(
   query: string,
   system: string,
   mode: MeasurementMode = "baseline",
+  model: ModelConfiguration = MODELS[provider],
 ) {
+  if (mode === "web" && !supportsWebSearch(provider))
+    throw new ProviderError("web_search_unsupported");
+  const search = SEARCH_PRICING[provider as keyof typeof SEARCH_PRICING];
   // UTF-8 byte count plus framing is a conservative text-token upper estimate.
   return Math.ceil(
-    (Buffer.byteLength(query + system, "utf8") + 256) * MODELS[provider].input +
-      MAX_OUTPUT * MODELS[provider].output +
+    (Buffer.byteLength(query + system, "utf8") + 256) * model.input +
+      model.maxOutput * model.output +
       (mode === "web"
-        ? SEARCH_PRICING[provider].toolMicros +
+        ? search.toolMicros +
           // Conservatively cover reported usage plus a separate fixed search-content block.
-          2 * SEARCH_PRICING[provider].contentTokens * MODELS[provider].input
+          2 * search.contentTokens * model.input
         : 0),
   );
 }
@@ -62,6 +62,9 @@ export type ProviderResult = {
   input: number | null;
   output: number | null;
   raw: unknown;
+  reportedCostMicros?: number | null;
+  cachedInput?: number | null;
+  servingProvider?: string | null;
   grounding?: Grounding;
   citations: { url: string; domain: string; title: string; provenance: string }[];
 };
@@ -172,7 +175,73 @@ function citation(url: string, title: string, provenance: string) {
   const valid = safePublicUrl(url);
   return valid ? [{ url: valid.href, domain: valid.hostname, title, provenance }] : [];
 }
+const chatSchema = z
+  .object({
+    id: z.string(),
+    model: z.string(),
+    provider: z.string().max(200).optional(),
+    choices: z.array(
+      z.object({
+        finish_reason: z.string().nullable(),
+        message: z
+          .object({
+            content: z.string().nullish(),
+            refusal: z.string().nullish(),
+            tool_calls: z.array(z.unknown()).nullish(),
+          })
+          .passthrough(),
+      }),
+    ),
+    usage: z
+      .object({
+        prompt_tokens: count.optional(),
+        completion_tokens: count.optional(),
+        cached_tokens: count.optional(),
+        prompt_tokens_details: z
+          .object({ cached_tokens: count.optional() })
+          .passthrough()
+          .nullish(),
+        cost: z.number().finite().nonnegative().max(2000).nullish(),
+      })
+      .passthrough()
+      .nullish(),
+  })
+  .passthrough();
 export function parseResponse(provider: Provider, data: unknown): ProviderResult {
+  if (provider === "kimi" || provider === "openrouter") {
+    const d = chatSchema.parse(data),
+      choice = d.choices[0];
+    const text = choice?.message.content ?? "";
+    const cachedInput =
+      d.usage?.prompt_tokens_details?.cached_tokens ?? d.usage?.cached_tokens ?? null;
+    if (
+      cachedInput != null &&
+      d.usage?.prompt_tokens != null &&
+      cachedInput > d.usage.prompt_tokens
+    )
+      throw new ProviderError("invalid_provider_payload");
+    return {
+      status:
+        choice?.finish_reason === "stop" &&
+        text.trim() &&
+        !choice.message.refusal &&
+        !choice.message.tool_calls?.length
+          ? "succeeded"
+          : "invalid",
+      text,
+      model: d.model,
+      requestId: d.id,
+      input: d.usage?.prompt_tokens ?? null,
+      // Chat Completions completion_tokens already includes reasoning; never add it again.
+      output: d.usage?.completion_tokens ?? null,
+      cachedInput,
+      reportedCostMicros:
+        provider === "openrouter" && d.usage?.cost != null ? Math.ceil(d.usage.cost * 1e6) : null,
+      servingProvider: provider === "openrouter" ? (d.provider ?? null) : "Moonshot AI",
+      raw: data,
+      citations: [],
+    };
+  }
   if (provider === "openai") {
     const d = openaiSchema.parse(data);
     const parts = d.output.filter((o) => o.type === "message").flatMap((o) => o.content ?? []);
@@ -274,19 +343,16 @@ export class ProviderError extends Error {
     super(code);
   }
 }
-export async function callProvider(
+export function requestOptions(
   provider: Provider,
-  key: string,
-  query: string,
-  system: string,
-  mode: MeasurementMode = "baseline",
-): Promise<ProviderResult> {
-  const openai = provider === "openai";
-  const body = openai
+  mode: MeasurementMode,
+  model: ModelConfiguration = MODELS[provider],
+) {
+  if (mode === "web" && !supportsWebSearch(provider))
+    throw new ProviderError("web_search_unsupported");
+  return provider === "openai"
     ? {
         model: MODELS.openai.id,
-        instructions: system,
-        input: query,
         max_output_tokens: MAX_OUTPUT,
         temperature: 0.7,
         store: false,
@@ -298,26 +364,79 @@ export async function callProvider(
             }
           : {}),
       }
-    : {
-        ...(mode === "web" ? { tools: [{ google_search: {} }] } : {}),
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: query }] }],
-        generationConfig: {
-          maxOutputTokens: MAX_OUTPUT,
-          temperature: 0.7,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      };
+    : provider === "gemini"
+      ? {
+          ...(mode === "web" ? { tools: [{ google_search: {} }] } : {}),
+          generationConfig: {
+            maxOutputTokens: MAX_OUTPUT,
+            temperature: 0.7,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }
+      : {
+          model: model.id,
+          stream: false,
+          ...(provider === "kimi"
+            ? {
+                max_completion_tokens: model.maxOutput,
+                reasoning_effort: "low",
+                prompt_cache_options: { mode: "implicit", ttl: "5m" },
+              }
+            : {
+                max_tokens: model.maxOutput,
+                ...(model.reasoning === "low"
+                  ? { reasoning: { effort: "low", exclude: true } }
+                  : {
+                      temperature: 0.7,
+                      ...(model.reasoning === "disabled" ? { reasoning: { enabled: false } } : {}),
+                    }),
+                provider: {
+                  require_parameters: true,
+                  allow_fallbacks: true,
+                  data_collection: "deny",
+                  max_price: { prompt: model.input, completion: model.output, request: 0 },
+                },
+              }),
+        };
+}
+export async function callProvider(
+  provider: Provider,
+  key: string,
+  query: string,
+  system: string,
+  mode: MeasurementMode = "baseline",
+  modelId = MODELS[provider].id,
+): Promise<ProviderResult> {
+  const model = modelConfiguration(provider, modelId);
+  if (!model) throw new ProviderError("model_configuration_changed");
+  if (mode === "web" && !supportsWebSearch(provider))
+    throw new ProviderError("web_search_unsupported");
+  const body = {
+    ...requestOptions(provider, mode, model),
+    ...(provider === "openai"
+      ? { instructions: system, input: query }
+      : provider === "gemini"
+        ? {
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: query }] }],
+          }
+        : {
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: query },
+            ],
+          }),
+  };
   let response: Response;
   try {
-    response = await fetch(MODELS[provider].endpoint, {
+    response = await fetch(model.endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(openai ? { Authorization: `Bearer ${key}` } : { "x-goog-api-key": key }),
+        ...(provider === "gemini" ? { "x-goog-api-key": key } : { Authorization: `Bearer ${key}` }),
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(model.reasoning === "low" ? 90_000 : 60_000),
       redirect: "error",
     });
   } catch {

@@ -36,7 +36,15 @@ import { Button } from "./ui/button";
 import { motion } from "motion/react";
 import { PageTransition, useMotionPreferences } from "./ui/motion";
 import { useMobileNavigation } from "./ui/use-mobile-navigation";
-import { mentionRate } from "@/lib/measurement";
+import { PROVIDERS, PROVIDER_LABELS, MODELS } from "@/lib/provider-config";
+import {
+  accountStorageKey,
+  clearBrowserValue,
+  readBrowserValue,
+  saveBrowserValue,
+  workspacePreferenceSchema,
+} from "@/lib/browser-storage";
+import { mentionRate, servingProvider } from "@/lib/measurement";
 import type { State, Run, RunDetail, ResponseRecord } from "@/lib/types";
 import {
   api,
@@ -110,8 +118,26 @@ export function Workspace() {
   const refresh = useCallback(async () => {
     const s = await api<State>("state");
     setState(s);
-    setProjectId((old) => (s.projects.some((p) => p.id === old) ? old : (s.projects[0]?.id ?? "")));
+    const saved = readBrowserValue(
+      accountStorageKey("workspace", s.user),
+      workspacePreferenceSchema,
+    ).value;
+    setProjectId((old) =>
+      s.projects.some((p) => p.id === old)
+        ? old
+        : s.projects.some((p) => p.id === saved?.projectId)
+          ? saved!.projectId
+          : (s.projects[0]?.id ?? ""),
+    );
   }, []);
+  useEffect(() => {
+    if (state && project)
+      saveBrowserValue(
+        accountStorageKey("workspace", state.user),
+        { projectId: project.id },
+        workspacePreferenceSchema,
+      );
+  }, [state?.user.id, state?.user.org_id, project?.id]);
   useEffect(() => {
     refresh()
       .catch(async (e) => {
@@ -872,9 +898,7 @@ export function Workspace() {
                                   return (
                                     <tr key={pr}>
                                       <td>
-                                        <strong>
-                                          {pr === "openai" ? "OpenAI" : "Google Gemini"}
-                                        </strong>
+                                        <strong>{PROVIDER_LABELS[pr]}</strong>
                                         <small className="block muted mono">
                                           {detail.run.snapshot.models[pr]}
                                         </small>
@@ -1220,19 +1244,30 @@ export function Workspace() {
                         {t("Connecter une clé", "Connect a key")}
                       </Button>
                     </div>
-                    {["openai", "gemini"].map((pr) => {
+                    {PROVIDERS.map((pr) => {
                       const connected = state.credentials.find((c) => c.provider === pr);
                       return (
                         <div className="integration-row" key={pr}>
                           <div className="integration-icon">
-                            {pr === "openai" ? <Sparkles size={22} /> : <Globe2 size={22} />}
+                            {pr === "kimi" ? (
+                              <Moon size={22} />
+                            ) : pr === "openrouter" ? (
+                              <Layers3 size={22} />
+                            ) : pr === "openai" ? (
+                              <Sparkles size={22} />
+                            ) : (
+                              <Globe2 size={22} />
+                            )}
                           </div>
                           <div className="grow">
-                            <strong>{pr === "openai" ? "OpenAI" : "Google Gemini"}</strong>
+                            <strong>{PROVIDER_LABELS[pr]}</strong>
                             <p>
-                              {pr === "openai"
-                                ? "Responses API · GPT-4.1 mini"
-                                : "GenerateContent API · Gemini 2.5 Flash-Lite"}
+                              {pr === "openrouter"
+                                ? t(
+                                    "Chat Completions API · 3 modèles au choix",
+                                    "Chat Completions API · 3 model choices",
+                                  )
+                                : `${pr === "openai" ? "Responses" : pr === "gemini" ? "GenerateContent" : "Chat Completions"} API · ${MODELS[pr].name}`}
                             </p>
                           </div>
                           <span className={`badge ${connected ? "green" : ""}`}>
@@ -1399,13 +1434,17 @@ export function Workspace() {
         </div>
         {modal === "project" && (
           <ProjectWizard
+            key={state.user.id}
+            storageKey={accountStorageKey("project-draft", state.user)}
             t={t}
             busy={busy}
             onClose={() => setModal(null)}
-            onSave={(data) =>
+            onSave={(data, onCreated) =>
               act(
                 async () => {
                   const result = await api<{ id: string }>("projects", "POST", data);
+                  onCreated();
+                  setModal(null);
                   setProjectId(result.id);
                   setRunId("");
                   setTab("settings");
@@ -1439,8 +1478,11 @@ export function Workspace() {
             >
               <Field label={t("Fournisseur", "Provider")}>
                 <select name="provider">
-                  <option value="openai">OpenAI</option>
-                  <option value="gemini">Google Gemini</option>
+                  {PROVIDERS.map((provider) => (
+                    <option key={provider} value={provider}>
+                      {PROVIDER_LABELS[provider]}
+                    </option>
+                  ))}
                 </select>
               </Field>
               <Field
@@ -1552,6 +1594,10 @@ export function Workspace() {
                 setError("");
                 try {
                   await api("account", "DELETE", Object.fromEntries(f));
+                  clearBrowserValue(accountStorageKey("project-draft", state.user));
+                  clearBrowserValue(accountStorageKey("workspace", state.user));
+                  for (const project of state.projects)
+                    clearBrowserValue(accountStorageKey("campaign", state.user, project.id));
                   setModal(null);
                   setState(null);
                   setSetup(true);
@@ -1581,11 +1627,18 @@ export function Workspace() {
             wide
           >
             <div className="evidence-meta">
-              <span className="badge">{response.provider} · API</span>
+              <span className="badge">{PROVIDER_LABELS[response.provider]} · API</span>
               <span className="badge">{status(response.status)}</span>
               <span className="mono muted">{response.returned_model || response.model}</span>
             </div>
             <h3>{response.query_text}</h3>
+            {response.provider === "openrouter" && (
+              <p className="small muted">
+                {t("Fournisseur d’exécution", "Serving provider")} :{" "}
+                {servingProvider(response.parameters) ??
+                  t("Non communiqué par OpenRouter", "Not reported by OpenRouter")}
+              </p>
+            )}
             <p className="muted small">
               {response.finished_at ? date(response.finished_at) : t("En attente", "Pending")} ·{" "}
               {t("Échantillon", "Sample")} #{response.sample} ·{" "}

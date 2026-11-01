@@ -5,11 +5,26 @@ import { Button } from "../ui/button";
 import { api, Modal, Field, money, friendly, type Translate } from "./shared";
 import type { Project, State, Snapshot } from "@/lib/types";
 import type { Provider, MeasurementMode } from "@/lib/providers";
+import {
+  accountStorageKey,
+  campaignPreferenceSchema,
+  readBrowserValue,
+  saveBrowserValue,
+} from "@/lib/browser-storage";
+import {
+  PROVIDERS,
+  PROVIDER_LABELS,
+  OPENROUTER_MODEL_IDS,
+  OPENROUTER_MODELS,
+  supportsWebSearch,
+  type OpenRouterModel,
+} from "@/lib/provider-config";
 export type CampaignInput = {
   projectId: string;
   providers: Provider[];
   samples: number;
   mode: MeasurementMode;
+  openrouterModel?: OpenRouterModel;
   expectedConfigHash?: string;
   intervalHours?: number;
   firstRunAt?: string;
@@ -48,17 +63,56 @@ export function CampaignDialog({
   const [providers, setProviders] = useState<Provider[]>(state.credentials.map((c) => c.provider));
   const [samples, setSamples] = useState(1),
     [mode, setMode] = useState<MeasurementMode>("baseline");
+  const [openrouterModel, setOpenrouterModel] = useState<OpenRouterModel>(OPENROUTER_MODEL_IDS[0]);
+  const storageKey = accountStorageKey("campaign", state.user, project.id);
+  const [hydratedKey, setHydratedKey] = useState("");
+  const [savedLocally, setSavedLocally] = useState(true);
+  const hydrated = hydratedKey === storageKey;
+  useEffect(() => {
+    const { value, available } = readBrowserValue(storageKey, campaignPreferenceSchema);
+    if (value) {
+      const selected = value.providers.filter((pr) =>
+        state.credentials.some((c) => c.provider === pr),
+      );
+      setProviders(selected);
+      setSamples(value.samples);
+      setMode(
+        value.mode === "web" && selected.some((pr) => !supportsWebSearch(pr))
+          ? "baseline"
+          : value.mode,
+      );
+      setOpenrouterModel(value.openrouterModel);
+    }
+    setSavedLocally(available);
+    setHydratedKey(storageKey);
+  }, [storageKey]);
+  useEffect(() => {
+    if (hydrated)
+      setSavedLocally(
+        saveBrowserValue(
+          storageKey,
+          { providers, samples, mode, openrouterModel },
+          campaignPreferenceSchema,
+        ),
+      );
+  }, [storageKey, hydrated, providers, samples, mode, openrouterModel]);
   const [estimate, setEstimate] = useState<Estimate | null>(null),
     [estimateError, setEstimateError] = useState("");
   const [interval, setInterval] = useState(168),
     [first, setFirst] = useState(localDateTime(new Date(Date.now() + 86400_000)));
-  const config = JSON.stringify({ projectId: project.id, providers, samples, mode });
+  const config = JSON.stringify({
+    projectId: project.id,
+    providers,
+    samples,
+    mode,
+    openrouterModel,
+  });
   const [estimatedConfig, setEstimatedConfig] = useState("");
   useEffect(() => {
     let active = true;
     setEstimate(null);
     setEstimateError("");
-    if (providers.length)
+    if (hydrated && providers.length)
       api<Estimate>("runs/estimate", "POST", JSON.parse(config))
         .then((e) => {
           if (active) {
@@ -72,7 +126,7 @@ export function CampaignDialog({
     return () => {
       active = false;
     };
-  }, [config]);
+  }, [config, hydrated]);
   const ready = estimate && estimatedConfig === config && estimate.affordable;
   return (
     <Modal
@@ -103,21 +157,35 @@ export function CampaignDialog({
             "queries · a fresh conversation per response",
           )}
         </p>
+        <p className="small muted" role="status">
+          {savedLocally
+            ? t(
+                "Vos choix sont mémorisés sur cet appareil.",
+                "Your choices are remembered on this device.",
+              )
+            : t(
+                "Ce navigateur bloque la mémorisation de vos choix.",
+                "This browser blocks saving your choices.",
+              )}
+        </p>
         <Field label={t("Fournisseurs à interroger", "Providers to query")}>
           <div className="checkboxes">
-            {(["openai", "gemini"] as const).map((pr) => (
+            {PROVIDERS.map((pr) => (
               <label key={pr}>
                 <input
                   type="checkbox"
                   checked={providers.includes(pr)}
-                  disabled={!state.credentials.some((c) => c.provider === pr)}
+                  disabled={
+                    !state.credentials.some((c) => c.provider === pr) ||
+                    (mode === "web" && !supportsWebSearch(pr))
+                  }
                   onChange={(e) =>
                     setProviders(
                       e.target.checked ? [...providers, pr] : providers.filter((p) => p !== pr),
                     )
                   }
                 />
-                {pr === "openai" ? "OpenAI" : "Google Gemini"}
+                {PROVIDER_LABELS[pr]}
                 {!state.credentials.some((c) => c.provider === pr) && (
                   <small>{t("Clé requise", "Key required")}</small>
                 )}
@@ -125,6 +193,26 @@ export function CampaignDialog({
             ))}
           </div>
         </Field>
+        {providers.includes("openrouter") && (
+          <Field
+            label={t("Modèle via OpenRouter", "Model via OpenRouter")}
+            hint={t(
+              "Le modèle choisi est conservé dans chaque mesure. Le fournisseur d’exécution est enregistré lorsqu’OpenRouter le retourne.",
+              "Each measurement keeps the selected model. The serving provider is recorded when OpenRouter returns it.",
+            )}
+          >
+            <select
+              value={openrouterModel}
+              onChange={(e) => setOpenrouterModel(e.target.value as OpenRouterModel)}
+            >
+              {OPENROUTER_MODEL_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {OPENROUTER_MODELS[id].name} · {id}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field
           label={t("Mode de mesure", "Measurement mode")}
           hint={t(
@@ -136,11 +224,19 @@ export function CampaignDialog({
             <option value="baseline">
               {t("API sans recherche web", "API without web search")}
             </option>
-            <option value="web">
+            <option value="web" disabled={providers.some((pr) => !supportsWebSearch(pr))}>
               {t("API avec recherche web et citations", "API with web search and citations")}
             </option>
           </select>
         </Field>
+        {providers.some((pr) => !supportsWebSearch(pr)) && (
+          <p className="small muted">
+            {t(
+              "Kimi et OpenRouter sont disponibles en mode API sans recherche web. Aucune citation n’est déduite du texte généré.",
+              "Kimi and OpenRouter support API mode without web search. Generated links are not treated as citations.",
+            )}
+          </p>
+        )}
         <Field
           label={t("Échantillons par requête et fournisseur", "Samples per query and provider")}
         >
@@ -217,8 +313,8 @@ export function CampaignDialog({
         </div>
         <p className="small muted">
           {t(
-            "Maximum 1 200 tokens de sortie. Les frais de recherche sont inclus sans déduire les franchises fournisseur. Le coût final reste une estimation. Les échecs ne sont pas relancés automatiquement.",
-            "Maximum 1,200 output tokens. Search fees are included without deducting provider free allowances. Final costs remain estimates. Failures are not retried automatically.",
+            "Maximum 1 200 tokens de sortie, ou 8 192 pour Kimi (raisonnement inclus). Les frais de recherche sont inclus ; les taxes et frais de recharge sont exclus. Les coûts retournés par OpenRouter sont conservés. Les échecs ne sont pas relancés automatiquement.",
+            "Up to 1,200 output tokens, or 8,192 for Kimi (including reasoning). Search fees are included; taxes and credit purchase fees are excluded. OpenRouter-reported costs are retained. Failures are not retried automatically.",
           )}
         </p>
         {mode === "web" && (

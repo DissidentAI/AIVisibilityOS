@@ -1,11 +1,37 @@
 export const METHODOLOGY = "explicit-mention-v1";
+export function servingProvider(parameters?: Record<string, unknown>) {
+  const execution = parameters?.execution;
+  if (!execution || typeof execution !== "object") return null;
+  const value = (execution as Record<string, unknown>).servingProvider;
+  return typeof value === "string" && value.trim() ? value : null;
+}
 export function comparisonSignature(
-  rows: { status: string; query_text: string; provider: string; returned_model: string | null }[],
+  rows: {
+    status: string;
+    query_text: string;
+    provider: string;
+    returned_model: string | null;
+    parameters?: Record<string, unknown>;
+  }[],
 ) {
-  if (!rows.length || rows.some((r) => r.status !== "succeeded" || !r.returned_model)) return null;
+  if (
+    !rows.length ||
+    rows.some(
+      (r) =>
+        r.status !== "succeeded" ||
+        !r.returned_model ||
+        (r.provider === "openrouter" && !servingProvider(r.parameters)),
+    )
+  )
+    return null;
   return JSON.stringify(
     rows
-      .map((r) => [r.query_text, r.provider, r.returned_model])
+      .map((r) => [
+        r.query_text,
+        r.provider,
+        r.returned_model,
+        ...(r.provider === "openrouter" ? [servingProvider(r.parameters)] : []),
+      ])
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   );
 }

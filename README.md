@@ -6,7 +6,7 @@
 
 AI Visibility OS est une application Community auto-hébergeable pour mesurer les mentions d’une marque et de ses concurrents dans un ensemble explicite de questions et de réponses d’API IA. Chaque mesure conserve la réponse, le modèle, les paramètres, la date, les extraits de mention et le coût estimé.
 
-> Il s’agit d’observations des **API officielles**, pas des interfaces grand public de ChatGPT ou Gemini, ni d’une mesure de toute la visibilité sur Internet.
+> Il s’agit d’observations des **API officielles**, pas des interfaces grand public de ChatGPT, Gemini ou Kimi, ni d’une mesure de toute la visibilité sur Internet.
 
 ![Interface réelle, avant la première campagne](docs/screenshots/overview-light.png)
 
@@ -16,7 +16,8 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 
 - Compte propriétaire, sessions sécurisées et onboarding français/anglais.
 - Plusieurs projets, marque principale, jusqu’à dix concurrents et cinquante questions par projet.
-- Connecteurs OpenAI Responses et Google Gemini GenerateContent, clés chiffrées côté serveur.
+- Connecteurs OpenAI Responses, Google Gemini GenerateContent, Kimi et OpenRouter, clés chiffrées côté serveur. [Profils, coûts et limites](docs/PROVIDERS.md).
+- Brouillon de projet, dernier projet sélectionné et choix de campagne mémorisés dans le navigateur, séparément pour chaque compte. Aucune clé API dans le stockage local.
 - Campagnes à 1–5 échantillons par question/fournisseur, file PostgreSQL persistante et worker indépendant.
 - Réponses intégrales, mentions explicites, comparaisons, historique, incertitude statistique et CSV.
 - Budgets mensuels avec réservation atomique, aperçu du coût avant lancement et coûts inconnus conservés comme engagements prudents.

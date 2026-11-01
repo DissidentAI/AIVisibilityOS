@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent, type SetStateAction } from "react";
 import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, Save, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { ApiError, Field, Modal, friendly, type Translate } from "./shared";
 import {
@@ -15,28 +15,42 @@ import {
   projectIssueMessage,
   type ProjectIssue,
 } from "@/lib/project-validation";
+import { useProjectDraft } from "./use-project-draft";
+import { hasProjectDraft, type ProjectDraft } from "@/lib/browser-storage";
 export function ProjectWizard({
   t,
+  storageKey,
   busy,
   onClose,
   onSave,
 }: {
   t: Translate;
+  storageKey: string;
   busy: boolean;
   onClose: () => void;
-  onSave: (data: unknown) => Promise<unknown>;
+  onSave: (data: unknown, onCreated: () => void) => Promise<unknown>;
 }) {
-  const [step, setStep] = useState(1),
-    [name, setName] = useState(""),
-    [domain, setDomain] = useState(""),
-    [industry, setIndustry] = useState(""),
-    [country, setCountry] = useState("FR"),
-    [language, setLanguage] = useState("fr"),
-    [competitors, setCompetitors] = useState([
-      { name: "", domain: "" },
-      { name: "", domain: "" },
-    ]),
-    [questions, setQuestions] = useState("");
+  const { draft, setDraft, ready, restored, persistence, clearDraft, completeDraft } =
+    useProjectDraft(storageKey);
+  const { step, name, domain, industry, country, language, competitors, questions } = draft;
+  function setValue<K extends keyof ProjectDraft>(key: K, update: SetStateAction<ProjectDraft[K]>) {
+    setDraft((prev) => ({
+      ...prev,
+      [key]:
+        typeof update === "function"
+          ? (update as (previous: ProjectDraft[K]) => ProjectDraft[K])(prev[key])
+          : update,
+    }));
+  }
+  const setStep = (value: number) => setValue("step", value);
+  const setName = (value: string) => setValue("name", value);
+  const setDomain = (value: string) => setValue("domain", value);
+  const setIndustry = (value: string) => setValue("industry", value);
+  const setCountry = (value: string) => setValue("country", value);
+  const setLanguage = (value: string) => setValue("language", value === "en" ? "en" : "fr");
+  const setCompetitors = (value: SetStateAction<ProjectDraft["competitors"]>) =>
+    setValue("competitors", value);
+  const setQuestions = (value: string) => setValue("questions", value);
   const { reduced } = useMotionPreferences();
   const stepRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -103,6 +117,39 @@ export function ProjectWizard({
     .filter(Boolean);
   return (
     <Modal title={t("Créer un projet", "Create a project")} onClose={onClose}>
+      {(persistence !== "empty" || hasProjectDraft(draft)) && (
+        <div className="draft-status">
+          <span role="status">
+            <Save size={14} />
+            {persistence === "unavailable"
+              ? t(
+                  "La sauvegarde locale est bloquée par ce navigateur. Gardez cette page ouverte.",
+                  "This browser blocks local saving. Keep this page open.",
+                )
+              : restored
+                ? t(
+                    "Brouillon repris · sauvegarde sur cet appareil",
+                    "Draft restored · saved on this device",
+                  )
+                : t("Brouillon sauvegardé sur cet appareil", "Draft saved on this device")}
+          </span>
+          {hasProjectDraft(draft) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                clearErrors();
+                clearDraft();
+              }}
+            >
+              <Trash2 size={14} />
+              {t("Effacer le brouillon", "Discard draft")}
+            </Button>
+          )}
+        </div>
+      )}
       <div className="wizard-steps">
         {[t("Marque", "Brand"), t("Concurrents", "Competitors"), t("Questions", "Questions")].map(
           (s, i) => (
@@ -131,7 +178,7 @@ export function ProjectWizard({
         onChange={clearErrors}
         onSubmit={async (e: FormEvent) => {
           e.preventDefault();
-          if (busy) return;
+          if (busy || !ready) return;
           clearErrors();
           // Ignore only completely empty rows. Keep the mapping to the visible row for errors.
           const entered = competitors
@@ -179,7 +226,7 @@ export function ProjectWizard({
             const result = projectSchema.safeParse(data);
             if (!result.success) return showIssues(projectIssues(result.error));
             try {
-              await onSave(result.data);
+              await onSave(result.data, completeDraft);
             } catch (error) {
               if (error instanceof ApiError && error.issues.length) showIssues(error.issues);
               else
@@ -389,7 +436,7 @@ export function ProjectWizard({
               {t("Retour", "Back")}
             </Button>
           )}
-          <Button disabled={busy}>
+          <Button disabled={busy || !ready}>
             {step < 3 ? t("Continuer", "Continue") : t("Créer le projet", "Create project")}
             <ArrowRight size={15} />
           </Button>

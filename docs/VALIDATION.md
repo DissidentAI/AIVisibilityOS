@@ -6,12 +6,13 @@
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Migrations sur base vide et seconde application idempotente | Réussite                                                                           |
 | TypeScript strict                                           | Réussite                                                                           |
-| Tests unitaires + intégration PostgreSQL                    | **48 tests réussis**                                                               |
+| Tests unitaires + intégration PostgreSQL                    | **62 tests réussis**                                                               |
 | Build Next.js production standalone                         | Réussite                                                                           |
-| Parcours navigateur Chromium et WebKit                      | **4 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
+| Parcours navigateur Chromium et WebKit                      | **7 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
 | Audit npm, dépendances de production et développement       | **0 vulnérabilité signalée** au contrôle effectué                                  |
 | Connexion réelle OpenAI                                     | Non vérifiée : aucune clé réelle fournie                                           |
 | Connexion réelle Gemini                                     | Non vérifiée : aucune clé réelle fournie                                           |
+| Connexion réelle Kimi / OpenRouter                          | Non vérifiée : réponses synthétiques uniquement                                    |
 | Docker sur la machine locale                                | Docker absent localement ; **images, démarrage et smoke test validés en CI Linux** |
 | Déploiement public et HTTPS sur VPS                         | Non effectués                                                                      |
 | Audit de sécurité indépendant / charge SaaS multi-tenant    | Non effectués ; cloud partagé fermé                                                |
@@ -58,3 +59,13 @@ Le formulaire et l’API utilisent désormais les mêmes règles de validation. 
 Le défaut a été reproduit en comparant l’ancien schéma, qui rejetait une URL avec chemin, au schéma corrigé. Le domaine exact de la saisie signalée par le propriétaire n’était pas disponible : cette reproduction ne permet pas de lui attribuer une cause certaine. Les tests couvrent aussi les domaines invalides, les noms et questions en double, les limites conservées, l’absence d’écriture partielle et les accès anonymes refusés.
 
 Un nouveau parcours WebKit à 390 px crée réellement un projet dans la base de test avec les noms « Karbu France » et « Gasoil Now », des domaines réservés `.example` et dix questions proposées par le formulaire. Il contrôle le focus sur le domaine invalide, une question en double et le retour à l’étape Concurrents après un rejet serveur **simulé uniquement dans le test**. La requête suivante utilise la véritable API et vérifie les domaines enregistrés. Aucun appel fournisseur ni aucune donnée de test n’est ajouté à l’installation de prévisualisation.
+
+## Kimi, OpenRouter et persistance des formulaires
+
+Les connecteurs et leurs paramètres ont été confrontés aux sources officielles listées dans [PROVIDERS.md](PROVIDERS.md). Le tableau de prix Kimi a été lu dans le navigateur officiel ; les trois profils OpenRouter ont été vérifiés dans son endpoint public `/api/v1/models`. Aucun SDK ni service supplémentaire n’a été installé.
+
+Les tests couvrent les requêtes HTTP, modèles autorisés, refus/troncatures, tokens de raisonnement sans double comptage, cache Kimi, coûts rapportés par OpenRouter (y compris zéro), routage plafonné, refus de recherche non prise en charge avant l’appel et absence de fuite de clés. Les tests PostgreSQL exécutent vingt réponses synthétiques Kimi/OpenRouter via le worker, vérifient les coûts persistés, les budgets, l’isolation des organisations et le modèle figé des campagnes planifiées. Les comparaisons OpenRouter refusent les fournisseurs d’exécution inconnus ou différents.
+
+Trois nouveaux parcours WebKit vérifient la restauration d’un brouillon après rechargement/fermeture, sa suppression après création ou abandon explicite, les nouvelles connexions et préférences de campagne, l’absence de clés dans le stockage local et le fonctionnement lorsque ce stockage est bloqué. Les tests du stockage couvrent aussi l’expiration, les données corrompues/surdimensionnées et la séparation des comptes. **Les connexions réelles Kimi/OpenRouter restent non vérifiées sans clés autorisées ; aucune mesure payante n’a été lancée.**
+
+La configuration canonique a aussi été vérifiée après stockage JSONB et inversion de l’ordre des fournisseurs. Le worker refuse une modification des paramètres figés. Une panne simulée du rafraîchissement après création confirme que le brouillon est supprimé dès la confirmation serveur, sans attendre le chargement du tableau de bord.

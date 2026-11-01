@@ -12,6 +12,7 @@ import {
   budgetStatus,
 } from "./service";
 import type { Snapshot, User } from "./types";
+import { snapshotJson } from "./snapshot-json";
 export type Schedule = {
   id: string;
   org_id: string;
@@ -40,7 +41,7 @@ export async function saveSchedule(user: User, data: unknown) {
     await tx`select pg_advisory_xact_lock(824762)`;
     await tx`select id from organizations where id=${user.org_id} for update`;
     const snapshot = await snapshotFor(tx, user, p);
-    if (p.expectedConfigHash && p.expectedConfigHash !== digest(JSON.stringify(snapshot)))
+    if (p.expectedConfigHash && p.expectedConfigHash !== digest(snapshotJson(snapshot)))
       throw new AppError("configuration_changed", 409);
     const credentials = await tx`select provider from credentials where org_id=${user.org_id}`;
     if (p.providers.some((pr) => !credentials.some((c) => c.provider === pr)))

@@ -10,6 +10,22 @@ import {
 } from "../src/lib/security";
 const brand = { id: "brand-fixture", name: "Karburo", domain: "karburo.example" };
 describe("reproducible measurement", () => {
+  test("OpenRouter comparisons require identical known serving-provider composition", () => {
+    const row = {
+      status: "succeeded",
+      query_text: "Question?",
+      provider: "openrouter",
+      returned_model: "model",
+      parameters: { execution: { servingProvider: "Provider A" } },
+    };
+    expect(comparisonSignature([row])).not.toBeNull();
+    expect(comparisonSignature([{ ...row, parameters: {} }])).toBeNull();
+    expect(comparisonSignature([row])).not.toBe(
+      comparisonSignature([
+        { ...row, parameters: { execution: { servingProvider: "Provider B" } } },
+      ]),
+    );
+  });
   test("historical comparison requires complete coverage and identical returned models", () => {
     const rows = [
       { status: "succeeded", query_text: "Question?", provider: "gemini", returned_model: "v1" },
