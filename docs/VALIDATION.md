@@ -117,3 +117,13 @@ Résultats de cette tranche : 112 tests unitaires/PostgreSQL, 14 parcours naviga
 ## Reprises regroupées — 1 novembre 2026
 
 Migration 0009 testée sur une chaîne de campagnes héritées : aucun effacement des réponses, anciennes URL résolues vers une campagne canonique. 42 tests d’intégration et deux scénarios WebKit passent : reprises ciblées puis groupées, trois réponses finales dans une seule campagne, deux tentatives antérieures consultables, annulation sans lancement. Build de production validé.
+
+## Configuration et rapports multilingues — 1 novembre 2026
+
+125 tests unitaires et d’intégration passent : lots de questions atomiques/dédoublonnés, limites, édition concurrente détectée, identité des marques conservée, anciens snapshots inchangés, édition d’un planning, suggestions persistantes avec budget/cache/quotas/isolation et validation JSON. Les tâches de suggestions ne produisent aucune mesure de visibilité. Les fournisseurs sont simulés dans ces tests ; aucune nouvelle génération réelle n’a été achetée pour cette vérification.
+
+Les trois PDF ont été générés avec des fixtures explicitement synthétiques. Contrôle visuel des synthèses FR et chinoise, des barres comparatives et des questions ; extraction du texte chinois avec Poppler vérifiée. Un test long de 50 questions vérifie la pagination et les limites de taille. Le catalogue couvre toutes les chaînes statiques FR/EN de l’interface et inclut les libellés des contrôles d’audit.
+
+Le parcours WebKit de préparation teste : ajout par lots, génération IA de test réellement traitée par la file, filtrage de concurrents pendant la saisie, édition du projet, rechargement des réglages du scan, conservation de la réponse initiale, langue chinoise persistée, rapport anglais depuis une interface chinoise, téléchargement PDF réel, écrans de 390 et 320 px. Les scripts de fixture refusent toute base non suffixée `_test`.
+
+Vérification finale locale de cette tranche : les 15 parcours Chromium/WebKit passent ensemble, ainsi que les 125 tests unitaires/intégration, TypeScript, le build de production et le formatage. L’audit npm ne rapporte aucune vulnérabilité. Les liens de téléchargement déclarent explicitement leur comportement pour Safari ; la fermeture d’une fenêtre dispose d’un délai de repli si l’animation ne signale pas sa fin.

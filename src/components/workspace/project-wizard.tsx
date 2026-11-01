@@ -15,24 +15,29 @@ import {
   projectIssueMessage,
   type ProjectIssue,
 } from "@/lib/project-validation";
+import { AISuggestions } from "./ai-suggestions";
+import type { Provider } from "@/lib/provider-config";
 import { useProjectDraft } from "./use-project-draft";
 import { hasProjectDraft, type ProjectDraft } from "@/lib/browser-storage";
 export function ProjectWizard({
   t,
   storageKey,
+  providers,
   busy,
   onClose,
   onSave,
 }: {
   t: Translate;
   storageKey: string;
+  providers: Provider[];
   busy: boolean;
   onClose: () => void;
   onSave: (data: unknown, onCreated: () => void) => Promise<unknown>;
 }) {
   const { draft, setDraft, ready, restored, persistence, clearDraft, completeDraft } =
     useProjectDraft(storageKey);
-  const { step, name, domain, industry, country, language, competitors, questions } = draft;
+  const { step, name, domain, industry, description, country, language, competitors, questions } =
+    draft;
   function setValue<K extends keyof ProjectDraft>(key: K, update: SetStateAction<ProjectDraft[K]>) {
     setDraft((prev) => ({
       ...prev,
@@ -47,7 +52,8 @@ export function ProjectWizard({
   const setDomain = (value: string) => setValue("domain", value);
   const setIndustry = (value: string) => setValue("industry", value);
   const setCountry = (value: string) => setValue("country", value);
-  const setLanguage = (value: string) => setValue("language", value === "en" ? "en" : "fr");
+  const setLanguage = (value: string) =>
+    setValue("language", value === "zh-CN" ? "zh-CN" : value === "en" ? "en" : "fr");
   const setCompetitors = (value: SetStateAction<ProjectDraft["competitors"]>) =>
     setValue("competitors", value);
   const setQuestions = (value: string) => setValue("questions", value);
@@ -80,9 +86,27 @@ export function ProjectWizard({
     control?.focus();
     control?.scrollIntoView({ block: "nearest" });
   }, [issues, step]);
+  const [focusedCompetitor, setFocusedCompetitor] = useState(0);
   function suggest() {
     clearErrors();
     const topic = industry || t("ce secteur", "this sector");
+    if (language === "zh-CN") {
+      setQuestions(
+        [
+          `在 ${country}，${topic} 有哪些值得比较的方案？`,
+          `如何选择适合小型企业的 ${topic}？`,
+          `${topic} 的主要服务商有哪些？`,
+          `比较 ${topic} 时应该考虑哪些成本？`,
+          `哪些 ${topic} 方案适合初次使用者？`,
+          `有哪些免费的 ${topic} 工具？`,
+          `如何评估 ${topic} 服务的可靠性？`,
+          `${topic} 有哪些替代方案？`,
+          `哪些 ${topic} 服务适合个人使用？`,
+          `选择 ${topic} 时常见的问题有哪些？`,
+        ].join("\n"),
+      );
+      return;
+    }
     setQuestions(
       language === "fr"
         ? [
@@ -188,6 +212,7 @@ export function ProjectWizard({
             name,
             domain,
             industry,
+            description,
             country,
             language,
             competitors: entered.map(({ value }) => value),
@@ -250,7 +275,7 @@ export function ProjectWizard({
                   data-project-field="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Karburo"
+                  placeholder={t("Votre marque", "Your brand")}
                   required
                   minLength={2}
                   maxLength={100}
@@ -269,8 +294,8 @@ export function ProjectWizard({
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
                   placeholder={t(
-                    "karburo.io ou https://karburo.io/fr-fr/",
-                    "karburo.io or https://karburo.io/en/",
+                    "exemple.fr ou https://exemple.fr/",
+                    "example.com or https://example.com/",
                   )}
                   inputMode="url"
                   autoCapitalize="none"
@@ -289,10 +314,26 @@ export function ProjectWizard({
                   data-project-field="industry"
                   value={industry}
                   onChange={(e) => setIndustry(e.target.value)}
-                  placeholder={t("Comparaison des prix des carburants", "Fuel price comparison")}
+                  placeholder={t(
+                    "Logiciels de gestion pour PME",
+                    "Business software for small companies",
+                  )}
                   required
                   minLength={2}
                   maxLength={120}
+                />
+              </Field>
+              <Field
+                label={t(
+                  "Description de l’activité et des clients",
+                  "Business and customer description",
+                )}
+              >
+                <textarea
+                  value={description}
+                  rows={3}
+                  maxLength={2000}
+                  onChange={(e) => setValue("description", e.target.value)}
                 />
               </Field>
               <div className="form-grid">
@@ -320,6 +361,7 @@ export function ProjectWizard({
                   >
                     <option value="fr">Français</option>
                     <option value="en">English</option>
+                    <option value="zh-CN">简体中文</option>
                   </select>
                 </Field>
               </div>
@@ -341,6 +383,7 @@ export function ProjectWizard({
                   <Field label={t("Nom", "Name")} error={fieldError(`competitors.${i}.name`)}>
                     <input
                       data-project-field={`competitors.${i}.name`}
+                      onFocus={() => setFocusedCompetitor(i)}
                       value={c.name}
                       required={!!c.domain}
                       minLength={2}
@@ -420,6 +463,35 @@ export function ProjectWizard({
                 {qs.length}/50 {t("questions", "questions")}
               </p>
             </>
+          )}
+          {(step === 2 || step === 3) && (
+            <AISuggestions
+              key={step}
+              context={{
+                name,
+                domain,
+                industry,
+                description,
+                country,
+                language,
+                questions: qs,
+                competitors: competitors.filter((c) => c.name && c.domain),
+              }}
+              providers={providers}
+              t={t}
+              kind={step === 2 ? "competitors" : "questions"}
+              automatic={step === 2}
+              filter={step === 2 ? competitors[focusedCompetitor].name : ""}
+              onQuestion={(q) => setQuestions([...new Set([...qs, q])].join("\n"))}
+              onCompetitor={(c) =>
+                setCompetitors((rows) => {
+                  const i = focusedCompetitor;
+                  return i < 0
+                    ? rows
+                    : rows.map((r, j) => (j === i ? { name: c.name, domain: c.domain ?? "" } : r));
+                })
+              }
+            />
           )}
         </motion.div>
         <div className="modal-actions">

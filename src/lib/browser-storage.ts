@@ -69,8 +69,9 @@ export const projectDraftSchema = z.object({
   name: z.string().max(100),
   domain: z.string().max(2048),
   industry: z.string().max(120),
+  description: z.string().max(2000).default(""),
   country: z.string().max(2),
-  language: z.enum(["fr", "en"]),
+  language: z.enum(["fr", "en", "zh-CN"]),
   competitors: z.array(draftBrand).length(2),
   questions: z.string().max(50000),
 });
@@ -81,6 +82,7 @@ export function emptyProjectDraft(): ProjectDraft {
     name: "",
     domain: "",
     industry: "",
+    description: "",
     country: "FR",
     language: "fr",
     competitors: [
@@ -95,6 +97,7 @@ export function hasProjectDraft(draft: ProjectDraft) {
     draft.name ||
     draft.domain ||
     draft.industry ||
+    draft.description ||
     draft.questions ||
     draft.country !== "FR" ||
     draft.language !== "fr" ||
@@ -105,6 +108,7 @@ export const workspacePreferenceSchema = z.object({
   projectId: z.string().uuid().or(z.literal("")),
 });
 export const campaignPreferenceSchema = z.object({
+  serverRevision: z.number().int().positive().optional(),
   providers: z
     .array(z.enum(PROVIDERS))
     .max(PROVIDERS.length)

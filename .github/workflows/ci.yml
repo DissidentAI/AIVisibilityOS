@@ -47,6 +47,8 @@ jobs:
       - run: docker compose up -d --wait
       - run: npx tsx scripts/docker-smoke.ts
       - run: docker compose exec -T web test -f node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff
+      - run: docker compose exec -T web test -f src/assets/fonts/NotoSansCJKsc-Regular.otf
+      - run: docker compose exec -T web test -f src/assets/fonts/OFL.txt
       - run: docker compose exec -T web test -f node_modules/@fontsource/noto-sans/LICENSE
       - run: docker compose exec -T web test -f node_modules/@fontsource-variable/manrope/LICENSE
       - name: Verify backup restoration into a separate database

@@ -71,3 +71,7 @@ The responsive amber-and-ink interface includes glass surfaces, animated navigat
 Scans now use concurrent, PostgreSQL-coordinated calls with per-model ceilings, 15% request/token headroom, gradual ramp-up and provider cooldowns. Set your account quotas in **Settings → Scan speed**. See [execution controls](EXECUTION.md) for official sources, defaults and limitations.
 
 AI answers render Markdown with safe links, tables and code. Copy or download the displayed text, or switch to the unchanged Markdown source for `.md` export. See [answer exports](ANSWER-EXPORTS.md). The supplied A/star logo is used throughout the interface.
+
+## Planning, suggestions and multilingual reports
+
+The interface and PDF reports support French, English and Simplified Chinese, with independent report language selection. Add questions in batches, generate contextual AI suggestions, edit saved project/scan settings and retry failures within one campaign. See the [FR / EN / 中文 guide](PLANNING-AND-REPORTS.md) for behavior, budgets and evidence preservation.

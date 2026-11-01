@@ -201,6 +201,22 @@ export function SchedulesPanel({
       {open && (
         <CampaignDialog
           schedule
+          initialSettings={
+            schedule
+              ? {
+                  providers: schedule.snapshot.providers,
+                  samples: schedule.snapshot.samples,
+                  mode: schedule.snapshot.parameters.search ? "web" : "baseline",
+                  openrouterModel: schedule.snapshot.models
+                    .openrouter as import("@/lib/provider-config").OpenRouterModel,
+                  intervalHours: schedule.interval_hours,
+                  firstRunAt:
+                    new Date(schedule.next_run_at) > new Date()
+                      ? schedule.next_run_at
+                      : new Date(Date.now() + 86400000).toISOString(),
+                }
+              : undefined
+          }
           project={project}
           state={state}
           t={t}

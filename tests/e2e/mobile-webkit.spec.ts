@@ -59,7 +59,7 @@ test("WebKit: reduced motion and restricted browser storage keep sign-in usable"
   await expect(page.getByRole("button", { name: "Animations", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Changer de thème", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await page.getByRole("button", { name: "Passer en anglais", exact: true }).click();
+  await page.getByLabel("Langue de l’interface", { exact: true }).selectOption("en");
   await expect(page.getByLabel("Email address")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

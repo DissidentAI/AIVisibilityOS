@@ -1,4 +1,6 @@
 "use client";
+import { translator, localeOf, intlLocale, type Locale } from "@/lib/i18n";
+import { QuestionDialog, CompetitorDialog } from "./workspace/question-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
@@ -66,6 +68,7 @@ import {
   type Translate,
 } from "./workspace/shared";
 import { Metric, Comparison, HistoryChart } from "./workspace/analytics";
+import { ProjectEditor } from "./workspace/project-editor";
 import { ProjectWizard } from "./workspace/project-wizard";
 import { CampaignDialog } from "./workspace/campaign-dialog";
 import { SchedulesPanel } from "./workspace/schedules-panel";
@@ -91,11 +94,11 @@ type Tab =
   | "audit"
   | "reports";
 export function Workspace() {
-  const [lang, setLang] = useState<"fr" | "en">("fr"),
+  const [lang, setLang] = useState<Locale>("fr"),
     [dark, setDark] = useState(true);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const { reduced, paused, systemReduced, toggle: toggleMotion } = useMotionPreferences();
-  const t: Translate = (fr, en) => (lang === "fr" ? fr : en);
+  const t: Translate = translator(lang);
   const [state, setState] = useState<State | null>(null),
     [loading, setLoading] = useState(true),
     [setup, setSetup] = useState(false);
@@ -109,7 +112,7 @@ export function Workspace() {
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false);
   const [modal, setModal] = useState<
-      "project" | "run" | "credential" | "query" | "brand" | "delete" | null
+      "project" | "edit-project" | "run" | "credential" | "query" | "brand" | "delete" | null
     >(null),
     [response, setResponse] = useState<ResponseRecord | null>(null);
   const [credentialProvider, setCredentialProvider] = useState<Provider>("openai");
@@ -145,7 +148,7 @@ export function Workspace() {
   const project = state?.projects.find((p) => p.id === projectId);
   const activeRequest = useRef(0);
   useEffect(() => {
-    setLang(document.documentElement.lang === "en" ? "en" : "fr");
+    setLang(localeOf(document.documentElement.lang));
     setDark(document.documentElement.dataset.theme !== "light");
     setPreferencesReady(true);
   }, []);
@@ -294,7 +297,7 @@ export function Workspace() {
   const metric = mentionRate(count, valid.length);
   const costs = costSummary(detail ? allAttempts(detail) : []);
   const date = (value: string) =>
-    new Date(value).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB", {
+    new Date(value).toLocaleString(intlLocale(lang), {
       dateStyle: "medium",
       timeStyle: "short",
     });
@@ -334,13 +337,16 @@ export function Workspace() {
       >
         {dark ? <Sun size={17} /> : <Moon size={17} />}
       </Button>
-      <button
-        className="language"
-        onClick={() => setLang(lang === "fr" ? "en" : "fr")}
-        aria-label={t("Passer en anglais", "Switch to French")}
+      <select
+        className="language-select"
+        aria-label={t("Langue de l’interface", "Interface language", "界面语言")}
+        value={lang}
+        onChange={(e) => setLang(localeOf(e.target.value))}
       >
-        {lang.toUpperCase()} <ChevronDown size={12} />
-      </button>
+        <option value="fr">Français</option>
+        <option value="en">English</option>
+        <option value="zh-CN">简体中文</option>
+      </select>
     </>
   );
   if (loading)
@@ -725,6 +731,13 @@ export function Workspace() {
                   <Globe2 size={12} />
                   {project ? `${project.country} · ${project.language.toUpperCase()}` : "FR / EN"}
                 </span>
+                <Button
+                  variant="outline"
+                  disabled={!project || busy}
+                  onClick={() => setModal("edit-project")}
+                >
+                  {t("Modifier le projet et le scan", "Edit project and scan")}
+                </Button>
                 <Button disabled={!project || busy} onClick={() => setModal("run")}>
                   <Play size={14} />
                   {t("Lancer une mesure", "Run measurement")}
@@ -900,6 +913,7 @@ export function Workspace() {
                               ? t(
                                   `${costs.unknown} coûts inconnus · ${costs.known} connus`,
                                   `${costs.unknown} unknown costs · ${costs.known} known`,
+                                  `${costs.unknown} 项费用未知 · ${costs.known} 项已知`,
                                 )
                               : costs.pending
                                 ? t(
@@ -1302,6 +1316,7 @@ export function Workspace() {
                                 ? t(
                                     `Chat Completions API · ${OPENROUTER_MODEL_IDS.length} modèles au choix`,
                                     `Chat Completions API · ${OPENROUTER_MODEL_IDS.length} model choices`,
+                                    `Chat Completions API · ${OPENROUTER_MODEL_IDS.length} 个可选模型`,
                                   )
                                 : `${pr === "openai" ? "Responses" : pr === "gemini" ? "GenerateContent" : "Chat Completions"} API · ${MODELS[pr].name}`}
                             </p>
@@ -1493,6 +1508,7 @@ export function Workspace() {
           <ProjectWizard
             key={state.user.id}
             storageKey={accountStorageKey("project-draft", state.user)}
+            providers={state.credentials.map((c) => c.provider)}
             t={t}
             busy={busy}
             onClose={() => setModal(null)}
@@ -1609,6 +1625,24 @@ export function Workspace() {
             </form>
           </Modal>
         )}
+        {modal === "edit-project" && project && (
+          <ProjectEditor
+            project={project}
+            state={state}
+            t={t}
+            onClose={() => setModal(null)}
+            onSaved={() => {
+              setModal(null);
+              refresh().catch((e) => setError(e.message));
+              setNotice(
+                t(
+                  "Réglages enregistrés pour les prochains scans.",
+                  "Settings saved for future scans.",
+                ),
+              );
+            }}
+          />
+        )}
         {modal === "run" && project && (
           <CampaignDialog
             project={project}
@@ -1625,6 +1659,7 @@ export function Workspace() {
             onClose={() => {
               setReturnToCampaign(false);
               setModal(null);
+              refresh().catch((e) => setError(e.message));
             }}
             onSave={(data) =>
               act(
@@ -1667,45 +1702,25 @@ export function Workspace() {
             }}
           />
         )}
-        {(modal === "query" || modal === "brand") && project && (
-          <Modal
-            title={
-              modal === "query"
-                ? t("Ajouter une question", "Add a question")
-                : t("Ajouter un concurrent", "Add a competitor")
-            }
+        {modal === "query" && project && (
+          <QuestionDialog
+            project={project}
+            state={state}
+            t={t}
+            busy={busy}
             onClose={() => setModal(null)}
-          >
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const f = new FormData(e.currentTarget);
-                act(() =>
-                  api(
-                    `projects/${project.id}/${modal === "query" ? "queries" : "brands"}`,
-                    "POST",
-                    Object.fromEntries(f),
-                  ),
-                );
-              }}
-            >
-              {modal === "query" ? (
-                <Field label={t("Question exacte", "Exact question")}>
-                  <textarea name="text" minLength={5} maxLength={1000} required rows={4} />
-                </Field>
-              ) : (
-                <>
-                  <Field label={t("Nom de la marque", "Brand name")}>
-                    <input name="name" minLength={2} maxLength={100} required />
-                  </Field>
-                  <Field label={t("Domaine", "Domain")}>
-                    <input name="domain" placeholder="example.com" required />
-                  </Field>
-                </>
-              )}
-              <Button disabled={busy}>{t("Ajouter", "Add")}</Button>
-            </form>
-          </Modal>
+            onSave={(texts) => act(() => api(`projects/${project.id}/queries`, "POST", { texts }))}
+          />
+        )}
+        {modal === "brand" && project && (
+          <CompetitorDialog
+            project={project}
+            state={state}
+            t={t}
+            busy={busy}
+            onClose={() => setModal(null)}
+            onSave={(brand) => act(() => api(`projects/${project.id}/brands`, "POST", brand))}
+          />
         )}
         {modal === "delete" && (
           <Modal

@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { FileText, Download, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { api, Empty, Field, friendly, type Translate } from "./shared";
+import { z } from "zod";
+import { readBrowserValue, saveBrowserValue } from "@/lib/browser-storage";
 import type { Branding } from "@/lib/reports";
 import type { Project, Run, RunDetail } from "@/lib/types";
 type SavedReport = { id: string; title: string; created_at: string };
@@ -18,9 +20,20 @@ export function ReportsPanel({
   detail: RunDetail | null;
   runs: Run[];
   t: Translate;
-  locale: "fr" | "en";
+  locale: "fr" | "en" | "zh-CN";
   date: (s: string) => string;
 }) {
+  const [reportLocale, setReportLocale] = useState(locale);
+  const [localeReady, setLocaleReady] = useState(false);
+  const localeKey = `avos:v1:${project.org_id}:report-language`;
+  useEffect(() => {
+    const saved = readBrowserValue(localeKey, z.enum(["fr", "en", "zh-CN"])).value;
+    if (saved) setReportLocale(saved);
+    setLocaleReady(true);
+  }, [localeKey]);
+  useEffect(() => {
+    if (localeReady) saveBrowserValue(localeKey, reportLocale, z.enum(["fr", "en", "zh-CN"]));
+  }, [localeReady, localeKey, reportLocale]);
   const [reports, setReports] = useState<SavedReport[]>([]),
     [branding, setBranding] = useState<Branding>({
       agency_name: "AI Visibility OS",
@@ -103,7 +116,7 @@ export function ReportsPanel({
                     api("reports", "POST", {
                       runId: detail.run.id,
                       previousRunId: previous || null,
-                      locale,
+                      locale: reportLocale,
                       notes,
                     }),
                   t(
@@ -113,6 +126,23 @@ export function ReportsPanel({
                 );
             }}
           >
+            <Field label={t("Langue du rapport", "Report language")}>
+              <select
+                className="report-language"
+                value={reportLocale}
+                onChange={(e) => setReportLocale(e.target.value as typeof locale)}
+              >
+                <option value="fr">Français</option>
+                <option value="en">English</option>
+                <option value="zh-CN">简体中文</option>
+              </select>
+            </Field>
+            <p className="small muted">
+              {t(
+                "Les questions, réponses et commentaires restent dans leur langue d’origine afin de préserver les preuves.",
+                "Questions, answers and commentary remain in their original language to preserve evidence.",
+              )}
+            </p>
             <p className="muted">
               {detail
                 ? `${t("Campagne", "Campaign")} : ${date(detail.run.created_at)} · ${detail.run.valid}/${detail.run.total} ${t("réponses valides", "valid responses")}`
@@ -268,11 +298,11 @@ export function ReportsPanel({
                     <td>{date(r.created_at)}</td>
                     <td>
                       <div className="inline">
-                        <a className="text-link" href={`/api/reports/${r.id}/pdf`}>
+                        <a className="text-link" download href={`/api/reports/${r.id}/pdf`}>
                           <Download size={14} />
                           PDF
                         </a>
-                        <a className="text-link" href={`/api/reports/${r.id}/data`}>
+                        <a className="text-link" download href={`/api/reports/${r.id}/data`}>
                           {t("Preuves JSON", "JSON evidence")}
                         </a>
                       </div>

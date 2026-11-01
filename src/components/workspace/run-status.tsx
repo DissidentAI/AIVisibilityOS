@@ -61,6 +61,7 @@ export function RunStatus({
             {t(
               `Réessayer ${ids.length} ${ids.length === 1 ? "échec" : "échecs"}`,
               `Retry ${ids.length} ${ids.length === 1 ? "failure" : "failures"}`,
+              `重试 ${ids.length} 个失败项`,
             )}
           </Button>
         )}
@@ -140,6 +141,7 @@ export function RunStatus({
             {t(
               `${detail.run.retried} réponse(s) relancée(s), ${detail.run.attempt_count} tentatives au total. Les indicateurs utilisent la dernière tentative de chaque question, fournisseur et échantillon. Les anciennes tentatives restent consultables dans le journal et l’export CSV.`,
               `${detail.run.retried} retried response(s), ${detail.run.attempt_count} attempts in total. Metrics use the latest attempt for each question, provider and sample. Earlier attempts remain available in the ledger and CSV export.`,
+              `${detail.run.retried} 个回答已重试，总共 ${detail.run.attempt_count} 次尝试。指标采用每个问题、供应商和样本的最新尝试。之前的记录可在历史与 CSV 导出中查看。`,
             )}
           </p>
           <p className="small muted">

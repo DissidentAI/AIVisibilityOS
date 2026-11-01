@@ -39,7 +39,7 @@ export type Grounding = {
 };
 export const PRICE_DATE = "2026-11-01";
 export function instructions(language: string, country: string) {
-  return `Answer the user's question in ${language === "fr" ? "French" : "English"}. The user is interested in the market ${country}. Be factual and indicate uncertainty. Do not invent sources. This is a fresh conversation.`;
+  return `Answer the user's question in ${language === "zh-CN" ? "Simplified Chinese" : language === "fr" ? "French" : "English"}. The user is interested in the market ${country}. Be factual and indicate uncertainty. Do not invent sources. This is a fresh conversation.`;
 }
 export function reserveMicros(
   provider: Provider,

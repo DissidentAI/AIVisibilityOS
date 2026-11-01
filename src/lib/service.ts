@@ -83,6 +83,9 @@ export async function getState(user: User): Promise<State> {
       name: p.name,
       domain: p.domain,
       industry: p.industry,
+      description: p.description,
+      scan_settings: p.scanSettings as Project["scan_settings"],
+      revision: p.revision,
       country: p.country,
       language: p.language,
       created_at: p.createdAt.toISOString(),
@@ -107,7 +110,7 @@ export async function createProject(user: User, data: unknown) {
     const [count] = await tx`select count(*)::int as n from projects where org_id=${user.org_id}`;
     if (count.n >= 20) throw new AppError("project_limit");
     const [project] =
-      await tx`insert into projects (org_id,name,domain,industry,language,country) values (${user.org_id},${p.name},${p.domain},${p.industry},${p.language},${p.country}) returning id`;
+      await tx`insert into projects (org_id,name,domain,industry,description,language,country) values (${user.org_id},${p.name},${p.domain},${p.industry},${p.description},${p.language},${p.country}) returning id`;
     for (const b of [{ name: p.name, domain: p.domain }, ...p.competitors]) {
       await tx`insert into brands (org_id,project_id,name,domain,is_primary) values (${user.org_id},${project.id},${b.name},${b.domain},${b.name === p.name})`;
     }
@@ -386,7 +389,9 @@ export async function createRun(user: User, data: unknown) {
     const snapshot = await snapshotFor(tx, user, p);
     if (p.expectedConfigHash && p.expectedConfigHash !== digest(snapshotJson(snapshot)))
       throw new AppError("configuration_changed", 409);
-    return enqueueSnapshot(tx, user, p.projectId, snapshot);
+    const run = await enqueueSnapshot(tx, user, p.projectId, snapshot);
+    await tx`update projects set scan_settings=${JSON.stringify({ providers: p.providers, samples: p.samples, mode: p.mode, openrouterModel: p.openrouterModel })}::jsonb,revision=revision+1 where id=${p.projectId} and org_id=${user.org_id}`;
+    return run;
   });
 }
 export async function listRuns(user: User, projectId: string): Promise<Run[]> {

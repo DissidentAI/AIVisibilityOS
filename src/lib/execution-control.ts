@@ -117,6 +117,7 @@ export async function claimRegulatedJob(): Promise<Job | undefined> {
       from ai_responses a join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where a.status='queued'
       union all select id,org_id,audit_id as run_id,query_text,provider,model,created_at,snapshot,'site_audit' as kind
       from audit_ai_jobs where status='queued'
+      union all select id,org_id,id as run_id,query_text,provider,model,created_at,snapshot,'assistant' as kind from assistant_jobs where status='queued'
     ) candidates order by org_id,provider,model,created_at,id`;
     candidates.sort(
       (a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime(),

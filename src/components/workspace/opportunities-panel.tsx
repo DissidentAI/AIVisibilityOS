@@ -64,6 +64,7 @@ export function OpportunitiesPanel({
                     {t(
                       `${lead.competitor} est mentionné dans ${lead.competitorCount} des ${lead.valid} réponses valides ; ${lead.primary} dans ${lead.own} des ${lead.valid} réponses.`,
                       `${lead.competitor} is mentioned in ${lead.competitorCount} of ${lead.valid} valid responses; ${lead.primary} in ${lead.own} of ${lead.valid} responses.`,
+                      `在 ${lead.valid} 条有效回答中，${lead.competitor} 被提及 ${lead.competitorCount} 次，${lead.primary} 被提及 ${lead.own} 次。`,
                     )}
                   </dd>
                 </div>
@@ -103,6 +104,7 @@ export function OpportunitiesPanel({
                   {t(
                     `Consulter les ${lead.evidence.length} preuves de l’écart`,
                     `View ${lead.evidence.length} responses supporting the gap`,
+                    `查看支持此差异的 ${lead.evidence.length} 条回答`,
                   )}
                 </summary>
                 <div>

@@ -39,7 +39,8 @@ export const projectDetailsSchema = z.object({
   name: brandName,
   domain,
   industry: z.string().trim().min(2, "industry_length").max(120, "industry_length"),
-  language: z.enum(["fr", "en"], { error: "language_selection" }),
+  description: z.string().trim().max(2000).default(""),
+  language: z.enum(["fr", "en", "zh-CN"], { error: "language_selection" }),
   country: z
     .string()
     .trim()
@@ -112,7 +113,7 @@ export function isProjectIssue(value: unknown): value is ProjectIssue {
   const issue = value as Record<string, unknown>;
   return (
     typeof issue.field === "string" &&
-    /^(|name|domain|industry|country|language|competitors(?:\.\d+\.(?:name|domain))?|queries(?:\.\d+)?)$/.test(
+    /^(|name|domain|industry|description|country|language|competitors(?:\.\d+\.(?:name|domain))?|queries(?:\.\d+)?)$/.test(
       issue.field,
     ) &&
     issueCodes.includes(issue.code as ProjectIssue["code"])
@@ -142,7 +143,10 @@ export function projectIssueMessage(issue: ProjectIssue, t: (fr: string, en: str
       "Le secteur doit contenir de 2 à 120 caractères.",
       "Use an industry between 2 and 120 characters.",
     ),
-    language_selection: t("Choisissez le français ou l’anglais.", "Choose French or English."),
+    language_selection: t(
+      "Choisissez le français, l’anglais ou le chinois.",
+      "Choose French, English or Chinese.",
+    ),
     country_code: t(
       "Utilisez un code pays de deux lettres, par exemple FR.",
       "Use a two-letter country code, such as FR.",

@@ -89,7 +89,7 @@ export type SiteAudit = {
   org_id: string;
   project_id: string;
   created_at: string;
-  language: "fr" | "en";
+  language: "fr" | "en" | "zh-CN";
   max_pages: number;
   version: string;
 };

@@ -1,3 +1,4 @@
+import { parseSuggestions } from "./suggestion-validation";
 import { sql } from "../db/client";
 import { jobTable, usageColumn } from "./api-work";
 import { decryptSecret } from "./security";
@@ -19,7 +20,7 @@ import { claimRegulatedJob, recordExecutionFeedback } from "./execution-control"
 import type { RateFeedback } from "./execution-policy";
 import { parseSynthesis } from "./site-audit/ai-evidence";
 export type Job = {
-  kind?: "measurement" | "site_audit";
+  kind?: "measurement" | "site_audit" | "assistant";
   created_at?: string;
   rate_tokens?: number;
   id: string;
@@ -60,7 +61,14 @@ export async function claimJob(
   ), accounting_period as (
     update usage_records set created_at=now() where audit_ai_id in(select id from claimed) returning id
   ) select claimed.*,audit_id as run_id,'site_audit' as kind from claimed`;
-  return auditJob;
+  if (auditJob) return auditJob;
+  const [assistant] = await sql<
+    Job[]
+  >`with next_job as(select id from assistant_jobs where status='queued' order by created_at,id for update skip locked limit 1),
+    claimed as(update assistant_jobs set status='running',started_at=now() where id in(select id from next_job) returning *),
+    accounting_period as(update usage_records set created_at=now() where assistant_id in(select id from claimed) returning id)
+    select claimed.*,id as run_id,'assistant' as kind from claimed`;
+  return assistant;
 }
 export async function settleJob(job: Job, result: ProviderResult | null, errorCode: string | null) {
   if (
@@ -71,10 +79,20 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
     result = { ...result, status: "invalid" };
     errorCode = "audit_synthesis_invalid";
   }
+  if (
+    job.kind === "assistant" &&
+    result?.status === "succeeded" &&
+    !parseSuggestions(result.text)
+  ) {
+    result = { ...result, status: "invalid" };
+    errorCode = "suggestions_invalid";
+  }
   await sql.begin(async (tx) => {
     const table = tx(jobTable(job.kind)),
       usageId = tx(usageColumn(job.kind));
-    const parentId = tx(job.kind === "site_audit" ? "audit_id" : "run_id");
+    const parentId = tx(
+      job.kind === "assistant" ? "id" : job.kind === "site_audit" ? "audit_id" : "run_id",
+    );
     const [existing] =
       await tx`select status from ${table} where id=${job.id} and org_id=${job.org_id} for update`;
     if (!existing || existing.status !== "running") return;
@@ -135,7 +153,7 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
         where org_id=${job.org_id} and ${parentId}=${job.run_id} and provider=${job.provider} and status='queued' returning id
       ) update usage_records set amount_micros=0,kind='estimated' where org_id=${job.org_id} and ${usageId} in (select id from stopped)`;
     }
-    if (result?.status === "succeeded" && job.kind !== "site_audit") {
+    if (result?.status === "succeeded" && (!job.kind || job.kind === "measurement")) {
       for (const m of detectMentions(result.text, job.snapshot.brands))
         await tx`insert into brand_mentions (org_id,response_id,brand_id,brand_name,excerpt,matched_alias,sentiment) values (${job.org_id},${job.id},${m.brandId},${m.brandName},${m.excerpt},${m.matchedAlias},${m.sentiment})`;
       for (const c of result.citations)
@@ -214,11 +232,15 @@ export async function maintenance() {
       await tx`update audit_ai_jobs set status='uncertain',error_code='worker_interrupted_no_automatic_retry',finished_at=now() where status='running' and started_at<now()-interval '2 minutes' returning id`;
     for (const row of expiredAudits)
       await tx`update usage_records set kind='uncertain' where audit_ai_id=${row.id}`;
+    await tx`with expired as(update assistant_jobs set status='uncertain',error_code='worker_interrupted_no_automatic_retry',finished_at=now() where status='running' and started_at<now()-interval '2 minutes' returning id)
+      update usage_records set kind='uncertain' where assistant_id in(select id from expired)`;
+
     await tx`delete from sessions where expires_at < now()`;
     await tx`delete from rate_limits where expires_at < now()`;
     const days = Number(process.env.RETENTION_DAYS ?? 365);
     if (!Number.isInteger(days) || days < 1 || days > 3650)
       throw new Error("invalid_retention_days");
+    await tx`delete from assistant_jobs where status not in ('queued','running') and created_at<now()-${Math.min(30, days)}*interval '1 day'`;
     await tx`delete from reports where created_at < now() - ${days} * interval '1 day'`;
     await tx`delete from schedule_events where created_at < now() - ${days} * interval '1 day'`;
     // Retain usage accounting separately; queued/running jobs are never purged.

@@ -9,7 +9,7 @@ export type Branding = { agency_name: string; logo_data: string | null };
 export type ReportPayload = {
   version: 1;
   createdAt: string;
-  locale: "fr" | "en";
+  locale: "fr" | "en" | "zh-CN";
   notes: string;
   branding: Branding;
   current: RunDetail;
@@ -81,7 +81,7 @@ export async function createReport(user: User, data: unknown) {
     .object({
       runId: z.uuid(),
       previousRunId: z.uuid().nullable().default(null),
-      locale: z.enum(["fr", "en"]),
+      locale: z.enum(["fr", "en", "zh-CN"]),
       notes: z.string().trim().max(2000).default(""),
     })
     .parse(data);
@@ -112,7 +112,7 @@ export async function createReport(user: User, data: unknown) {
 }
 export async function listReports(user: User, projectId: string) {
   await ownedProject(user, projectId);
-  return sql`select id,title,created_at from reports where org_id=${user.org_id} and project_id=${projectId} order by created_at desc limit 100`;
+  return sql`select id,title,created_at,payload->>'locale' as locale from reports where org_id=${user.org_id} and project_id=${projectId} order by created_at desc limit 100`;
 }
 export async function getReport(user: User, id: string) {
   uuidSchema.parse(id);

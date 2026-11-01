@@ -2,7 +2,7 @@
 
 **Des mesures de visibilité IA que vos clients peuvent vérifier.**
 
-[English documentation](docs/README.en.md) · [Installation VPS](docs/DEPLOYMENT.md) · [Méthodologie](docs/METHODOLOGY.md) · [Validation commerciale](docs/BUSINESS.md)
+[English documentation](docs/README.en.md) · [Scans et rapports · FR / EN / 中文](docs/PLANNING-AND-REPORTS.md) · [Installation VPS](docs/DEPLOYMENT.md) · [Méthodologie](docs/METHODOLOGY.md) · [Validation commerciale](docs/BUSINESS.md)
 
 [Audit produit et améliorations du 1er novembre 2026](docs/AUDIT-2026-11-01.md)
 
@@ -16,7 +16,7 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 
 ## Ce qui fonctionne
 
-- Compte propriétaire, sessions sécurisées et onboarding français/anglais.
+- Compte propriétaire, sessions sécurisées et onboarding français/anglais/chinois simplifié.
 - Plusieurs projets, marque principale, jusqu’à dix concurrents et cinquante questions par projet.
 - Connecteurs OpenAI, Google Gemini, Kimi, OpenRouter et **Xiaomi MiMo en direct avec votre clé Xiaomi**, clés chiffrées côté serveur. [Profils, coûts et limites](docs/PROVIDERS.md).
 - Brouillon de projet, dernier projet sélectionné et choix de campagne mémorisés dans le navigateur, séparément pour chaque compte. Aucune clé API dans le stockage local.
@@ -29,7 +29,9 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 - Campagnes planifiées toutes les 24 heures ou tous les 7 jours, pause/reprise et journal des échéances.
 - Mode API avec recherche web pour les cinq fournisseurs, citations structurées et pages trouvées distinguées. MiMo nécessite l’activation du plugin Web Search dans la console Xiaomi.
 - Vérification de l’authentification sans génération avant un scan manuel ; un refus 401 arrête les requêtes encore en attente du même fournisseur dans cette campagne.
-- Rapports PDF en français/anglais avec nom/logo d’agence, comparaison compatible et dossier de preuves JSON figé.
+- Questions ajoutées par lots ou proposées par l’IA ; concurrents suggérés à partir de la description et des questions, filtrés pendant la saisie. Budget et cache partagés, propositions à vérifier.
+- Édition des projets et réglages de scans sauvegardés, sans modifier les preuves historiques. Reprises regroupées dans une seule campagne, avec historique des tentatives.
+- Rapports PDF en français/anglais/chinois simplifié avec nom/logo d’agence, comparaison compatible et dossier de preuves JSON figé.
 - Interface ambre et encre, verre translucide, transitions et micro-interactions, thèmes clair/sombre et pause des animations respectant les préférences d’accessibilité.
 - Navigation mobile avec gestion du focus, export des données personnelles et suppression du compte.
 - Migrations Drizzle, Docker Compose, reverse proxy HTTPS optionnel, tests PostgreSQL et navigateur.

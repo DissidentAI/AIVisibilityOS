@@ -264,11 +264,11 @@ export function SiteAuditPanel({
               <RefreshCw size={14} />
               {t("Actualiser", "Refresh")}
             </Button>
-            <a className="text-link" href={`/api/audits/${detail.audit.id}/csv`}>
+            <a className="text-link" download href={`/api/audits/${detail.audit.id}/csv`}>
               <ArrowDownToLine size={14} />
               CSV
             </a>
-            <a className="text-link" href={`/api/audits/${detail.audit.id}/export`}>
+            <a className="text-link" download href={`/api/audits/${detail.audit.id}/export`}>
               JSON
             </a>
             {(active || detail.analyses.some((a) => a.status === "queued")) && (

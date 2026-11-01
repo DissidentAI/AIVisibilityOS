@@ -172,6 +172,7 @@ export function HistoryPanel({
                   eligible.length === 1
                     ? "Retry the matching failure"
                     : `Retry ${eligible.length} matching failures`,
+                  `重试 ${eligible.length} 个匹配的失败项`,
                 )}
               </Button>
             )}

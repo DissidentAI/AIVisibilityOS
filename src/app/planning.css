@@ -1,0 +1,110 @@
+.suggestion-panel {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(242, 201, 94, 0.07), transparent);
+}
+.suggestion-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+.suggestion-heading h3 {
+  font-size: 17px;
+  line-height: 1.4;
+  margin: 8px 0;
+}
+.suggestion-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.suggestion-controls .field {
+  flex: 1;
+  margin: 0;
+  min-width: 160px;
+}
+.suggestion-list {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: inherit;
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.15s;
+}
+.suggestion-item:hover {
+  background: rgba(242, 201, 94, 0.1);
+  transform: translateX(2px);
+}
+.suggestion-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.suggestion-item svg {
+  flex-shrink: 0;
+}
+.suggestion-item small {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+.project-editor-section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.project-editor-section h3 {
+  margin: 0 0 18px;
+}
+.project-editor-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  align-items: center;
+  margin: 12px 0;
+}
+.project-editor-row input {
+  min-width: 0;
+}
+.language-select {
+  width: auto;
+  min-width: 90px;
+  min-height: 42px;
+}
+.report-language {
+  max-width: 240px;
+}
+@media (max-width: 540px) {
+  .project-editor-row {
+    grid-template-columns: 1fr auto;
+  }
+  .project-editor-row input:first-child {
+    grid-column: 1/-1;
+  }
+  .suggestion-panel {
+    padding: 14px;
+  }
+  .suggestion-controls {
+    align-items: stretch;
+  }
+  .suggestion-controls button {
+    width: 100%;
+  }
+}

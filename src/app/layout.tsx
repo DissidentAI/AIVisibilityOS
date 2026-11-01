@@ -5,6 +5,7 @@ import "./globals.css";
 import "./editorial.css";
 import "./answers.css";
 import "./audits.css";
+import "./planning.css";
 export const metadata: Metadata = {
   title: "AI Visibility OS",
   description:
@@ -17,7 +18,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement;d.dataset.theme=localStorage.getItem('avos-theme')==='light'?'light':'dark';d.lang=localStorage.getItem('avos-lang')==='en'?'en':'fr';d.dataset.motion=localStorage.getItem('avos-motion')==='paused'||matchMedia('(prefers-reduced-motion: reduce)').matches?'reduced':'full'}catch(e){}})()`,
+            __html: `(function(){try{var d=document.documentElement;d.dataset.theme=localStorage.getItem('avos-theme')==='light'?'light':'dark';var l=localStorage.getItem('avos-lang');d.lang=l==='en'||l==='zh-CN'?l:'fr';d.dataset.motion=localStorage.getItem('avos-motion')==='paused'||matchMedia('(prefers-reduced-motion: reduce)').matches?'reduced':'full'}catch(e){}})()`,
           }}
         />
       </head>

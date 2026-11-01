@@ -5,6 +5,8 @@ const config: NextConfig = {
   outputFileTracingIncludes: {
     "/*": [
       "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff",
+      "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff",
+      "./src/assets/fonts/*",
       "./node_modules/@fontsource/noto-sans/LICENSE",
       "./node_modules/@fontsource-variable/manrope/LICENSE",
     ],

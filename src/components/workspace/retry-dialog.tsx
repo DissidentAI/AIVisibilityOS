@@ -117,6 +117,7 @@ export function RetryDialog({
           {t(
             `Tentatives au coût inconnu ou interrompues : ${estimate.uncertain}. Elles peuvent déjà avoir été facturées. Leur réservation reste comptée.`,
             `Attempts with unknown cost or interrupted status: ${estimate.uncertain}. They may already have been billed. Their reservation remains counted.`,
+            `费用未知或已中断的尝试：${estimate.uncertain} 次。可能已经计费，因此仍保留预留金额。`,
           )}
         </p>
       )}

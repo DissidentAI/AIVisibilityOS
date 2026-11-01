@@ -109,6 +109,9 @@ export const projects = pgTable(
     name: text("name").notNull(),
     domain: text("domain").notNull(),
     industry: text("industry").notNull(),
+    description: text("description").notNull().default(""),
+    scanSettings: jsonb("scan_settings"),
+    revision: integer("revision").notNull().default(1),
     language: text("language").notNull(),
     country: text("country").notNull(),
     createdAt: created(),
@@ -388,6 +391,46 @@ export const auditAiJobs = pgTable(
     index("audit_ai_rate_idx").on(t.orgId, t.provider, t.model, t.startedAt),
   ],
 );
+export const assistantJobs = pgTable(
+  "assistant_jobs",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull(),
+    projectId: uuid("project_id"),
+    purpose: text("purpose").notNull(),
+    contextHash: text("context_hash").notNull(),
+    queryText: text("query_text").notNull(),
+    snapshot: jsonb("snapshot").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    returnedModel: text("returned_model"),
+    channel: text("channel").notNull(),
+    parameters: jsonb("parameters").notNull(),
+    status: text("status").notNull().default("queued"),
+    answer: text("answer"),
+    raw: jsonb("raw"),
+    grounding: jsonb("grounding"),
+    requestId: text("request_id"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    costMicros: integer("cost_micros"),
+    errorCode: text("error_code"),
+    createdAt: created(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("assistant_org_unique").on(t.id, t.orgId),
+    foreignKey({ columns: [t.orgId], foreignColumns: [organizations.id] }).onDelete("cascade"),
+    index("assistant_context_idx").on(t.orgId, t.contextHash, t.createdAt),
+    foreignKey({
+      columns: [t.projectId, t.orgId],
+      foreignColumns: [projects.id, projects.orgId],
+    }).onDelete("cascade"),
+    index("assistant_queue_idx").on(t.status, t.createdAt),
+    index("assistant_rate_idx").on(t.orgId, t.provider, t.model, t.startedAt),
+  ],
+);
 export const usage = pgTable(
   "usage_records",
   {
@@ -400,6 +443,9 @@ export const usage = pgTable(
       .unique(),
     auditAiId: uuid("audit_ai_id")
       .references(() => auditAiJobs.id, { onDelete: "set null" })
+      .unique(),
+    assistantId: uuid("assistant_id")
+      .references(() => assistantJobs.id, { onDelete: "set null" })
       .unique(),
     amountMicros: integer("amount_micros").notNull(),
     kind: text("kind").default("reserved").notNull(),

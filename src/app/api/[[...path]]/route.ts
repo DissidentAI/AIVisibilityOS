@@ -1,3 +1,5 @@
+import { requestSuggestions, getSuggestions } from "@/lib/suggestions";
+import { updateProject, saveScanSettings, addQuestions } from "@/lib/project-settings";
 import { z } from "zod";
 import { sql } from "@/db/client";
 import { AppError } from "@/lib/errors";
@@ -146,8 +148,30 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       await saveExecutionPolicy(user, await body(request));
       return json({ ok: true });
     }
+    if (route === "suggestions" && method === "POST")
+      return json(await requestSuggestions(user, await body(request)), 202);
+    if (path[0] === "suggestions" && path.length === 2 && method === "GET")
+      return json(await getSuggestions(user, path[1]));
     if (route === "projects" && method === "POST")
       return json(await createProject(user, await body(request)), 201);
+    if (path[0] === "projects" && path[1] && path.length === 2 && method === "POST")
+      return json(await updateProject(user, path[1], await body(request)));
+    if (
+      path[0] === "projects" &&
+      path[1] &&
+      path.length === 3 &&
+      method === "POST" &&
+      path[2] === "scan-settings"
+    )
+      return json(await saveScanSettings(user, path[1], await body(request)));
+    if (
+      path[0] === "projects" &&
+      path[1] &&
+      path.length === 3 &&
+      method === "POST" &&
+      path[2] === "queries"
+    )
+      return json(await addQuestions(user, path[1], await body(request)), 201);
     if (path[0] === "projects" && path[1] && path.length === 2 && method === "DELETE") {
       await ownedProject(user, path[1]);
       await sql.begin(async (tx) => {
@@ -156,6 +180,9 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
         const [pending] =
           await tx`select count(*)::int as n from ai_responses a join measurement_runs r on r.id=a.run_id where r.project_id=${path[1]} and a.org_id=${user.org_id} and a.status in ('queued','running')`;
         if (pending.n) throw new AppError("campaign_already_running", 409);
+        const [assistantPending] =
+          await tx`select id from assistant_jobs where org_id=${user.org_id} and status in ('queued','running') limit 1`;
+        if (assistantPending) throw new AppError("suggestions_running", 409);
         const [auditPending] =
           await tx`select 1 from site_audits a where a.project_id=${path[1]} and a.org_id=${user.org_id} and (
           exists(select 1 from audit_sites s where s.audit_id=a.id and s.status in ('queued','running')) or
@@ -169,7 +196,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       path[0] === "projects" &&
       path[1] &&
       path.length === 3 &&
-      ["queries", "brands"].includes(path[2]) &&
+      path[2] === "brands" &&
       method === "POST"
     ) {
       await ownedProject(user, path[1]);
@@ -177,22 +204,15 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       await sql.begin(async (tx) => {
         await tx`select pg_advisory_xact_lock(824762)`;
         await tx`select id from projects where id=${path[1]} and org_id=${user.org_id} for update`;
-        if (path[2] === "queries") {
-          const p = z.object({ text: z.string().trim().min(5).max(1000) }).parse(data);
-          const [count] =
-            await tx`select count(*)::int as n from tracked_queries where project_id=${path[1]} and org_id=${user.org_id}`;
-          if (count.n >= 50) throw new AppError("query_limit");
-          await tx`insert into tracked_queries (org_id,project_id,text) values (${user.org_id},${path[1]},${p.text}) on conflict do nothing`;
-        } else {
-          const p = brandSchema.parse(data);
-          const [count] =
-            await tx`select count(*)::int as n from brands where project_id=${path[1]} and org_id=${user.org_id}`;
-          if (count.n >= 11) throw new AppError("brand_limit");
-          const [duplicate] =
-            await tx`select id from brands where project_id=${path[1]} and org_id=${user.org_id} and lower(name)=lower(${p.name})`;
-          if (duplicate) throw new AppError("duplicate_brand");
-          await tx`insert into brands (org_id,project_id,name,domain) values (${user.org_id},${path[1]},${p.name},${p.domain})`;
-        }
+        const p = brandSchema.parse(data);
+        const [count] =
+          await tx`select count(*)::int as n from brands where project_id=${path[1]} and org_id=${user.org_id}`;
+        if (count.n >= 11) throw new AppError("brand_limit");
+        const [duplicate] =
+          await tx`select id from brands where project_id=${path[1]} and org_id=${user.org_id} and lower(name)=lower(${p.name})`;
+        if (duplicate) throw new AppError("duplicate_brand");
+        await tx`insert into brands (org_id,project_id,name,domain) values (${user.org_id},${path[1]},${p.name},${p.domain})`;
+        await tx`update projects set revision=revision+1 where id=${path[1]} and org_id=${user.org_id}`;
       });
       return json({ ok: true }, 201);
     }
@@ -203,11 +223,16 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       method === "DELETE"
     ) {
       uuidSchema.parse(path[1]);
-      const rows =
-        path[0] === "queries"
-          ? await sql`delete from tracked_queries where id=${path[1]} and org_id=${user.org_id} returning id`
-          : await sql`delete from brands where id=${path[1]} and org_id=${user.org_id} and is_primary=false returning id`;
-      if (!rows.length) throw new AppError("not_found", 404);
+      await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(824762)`;
+        const table = tx(path[0] === "queries" ? "tracked_queries" : "brands");
+        const rows =
+          path[0] === "queries"
+            ? await tx`delete from ${table} where id=${path[1]} and org_id=${user.org_id} returning project_id`
+            : await tx`delete from ${table} where id=${path[1]} and org_id=${user.org_id} and is_primary=false returning project_id`;
+        if (!rows.length) throw new AppError("not_found", 404);
+        await tx`update projects set revision=revision+1 where id=${rows[0].project_id} and org_id=${user.org_id}`;
+      });
       return json({ ok: true });
     }
     if (route === "credentials/check" && method === "POST") {
@@ -359,6 +384,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       const audits = await sql`select * from site_audits where org_id=${user.org_id}`;
       const auditSites = await sql`select * from audit_sites where org_id=${user.org_id}`;
       const auditPages = await sql`select * from audit_pages where org_id=${user.org_id}`;
+      const suggestions = await sql`select * from assistant_jobs where org_id=${user.org_id}`;
       const auditAnalyses = await sql`select * from audit_ai_jobs where org_id=${user.org_id}`;
       return json(
         {
@@ -377,6 +403,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           auditSites,
           auditPages,
           auditAnalyses,
+          suggestions,
         },
         200,
         {
@@ -398,6 +425,9 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
         const [pending] =
           await tx`select count(*)::int as n from ai_responses where org_id=${user.org_id} and status in ('queued','running')`;
         if (pending.n) throw new AppError("campaign_already_running", 409);
+        const [assistantPending] =
+          await tx`select id from assistant_jobs where org_id=${user.org_id} and status in ('queued','running') limit 1`;
+        if (assistantPending) throw new AppError("suggestions_running", 409);
         const [auditPending] =
           await tx`select 1 where exists(select 1 from audit_sites where org_id=${user.org_id} and status in ('queued','running')) or exists(select 1 from audit_ai_jobs where org_id=${user.org_id} and status in ('queued','running'))`;
         if (auditPending) throw new AppError("audit_already_running", 409);

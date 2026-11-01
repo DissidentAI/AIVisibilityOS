@@ -16,7 +16,7 @@ import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
 import { isProjectIssue, type ProjectIssue } from "@/lib/project-validation";
 import { PROVIDERS, PROVIDER_LABELS } from "@/lib/provider-config";
-export type Translate = (fr: string, en: string) => string;
+export type Translate = (fr: string, en: string, zh?: string) => string;
 export const ModalError = createContext("");
 export class ApiError extends Error {
   readonly issues: ProjectIssue[];
@@ -65,9 +65,24 @@ export function Modal({
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
   }, []);
+  const closeCallback = useRef(onClose);
+  closeCallback.current = onClose;
+  const finishedClosing = useRef(false);
+  const finishClose = () => {
+    if (!finishedClosing.current) {
+      finishedClosing.current = true;
+      closeCallback.current();
+    }
+  };
+  useEffect(() => {
+    if (!closing) return;
+    // Native animation completion can be skipped when a tab is hidden or animations are interrupted.
+    const timer = setTimeout(finishClose, 250);
+    return () => clearTimeout(timer);
+  }, [closing]);
   const close = () => {
     onCloseStart?.();
-    if (reduced) onClose();
+    if (reduced) finishClose();
     else setClosing(true);
   };
   return (
@@ -79,7 +94,7 @@ export function Modal({
       animate={closing ? { opacity: 0, y: 12, scale: 0.98 } : { opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: reduced ? 0 : closing ? 0.16 : 0.35 }}
       onAnimationComplete={() => {
-        if (closing) onClose();
+        if (closing) finishClose();
       }}
       onCancel={(event) => {
         event.preventDefault();
@@ -174,18 +189,51 @@ export function friendly(code: string, t: Translate) {
       : t(
           `${PROVIDER_LABELS[provider]} refuse cette clé (401). Vérifiez la clé de sa plateforme API, puis remplacez-la dans Paramètres.`,
           `${PROVIDER_LABELS[provider]} rejected this key (401). Check its API platform key and replace it in Settings.`,
+          `${PROVIDER_LABELS[provider]} 拒绝此密钥（401）。请检查 API 平台密钥，并在设置中更换。`,
         );
   if (provider && code.startsWith("provider_access_denied_"))
     return t(
       `${PROVIDER_LABELS[provider]} refuse cet accès (403). Vérifiez les permissions de la clé et les restrictions du compte.`,
       `${PROVIDER_LABELS[provider]} denied access (403). Check key permissions and account restrictions.`,
+      `${PROVIDER_LABELS[provider]} 拒绝访问（403）。请检查密钥权限及账户限制。`,
     );
   if (provider && code.startsWith("provider_check_unavailable_"))
     return t(
       `Impossible de vérifier ${PROVIDER_LABELS[provider]} pour le moment. Aucun scan n’a été lancé ; réessayez dans un instant.`,
       `Unable to verify ${PROVIDER_LABELS[provider]} right now. No scan was started; please try again shortly.`,
+      `暂时无法验证 ${PROVIDER_LABELS[provider]}。未启动扫描，请稍后重试。`,
     );
   const errors: Record<string, string> = {
+    project_changed: t(
+      "Le projet a changé depuis l’ouverture. Rouvrez l’éditeur pour éviter d’écraser une autre modification.",
+      "The project changed since opening. Reopen the editor to avoid overwriting another change.",
+      "项目已发生变化。请重新打开编辑器，避免覆盖其他修改。",
+    ),
+    suggestions_running: t(
+      "Une génération est déjà en cours. Attendez son résultat.",
+      "A generation is already running. Wait for its result.",
+      "已有生成任务正在运行，请等待结果。",
+    ),
+    suggestions_daily_limit: t(
+      "La limite de 30 générations sur 24 heures est atteinte. Les suggestions déjà générées restent disponibles.",
+      "The 30-generation limit over 24 hours was reached. Cached suggestions remain available.",
+      "已达到 24 小时内 30 次生成的上限。缓存的建议仍可使用。",
+    ),
+    suggestions_invalid: t(
+      "La réponse de l’IA n’a pas le format attendu. Réessayez avec un autre fournisseur ; aucun résultat n’a été ajouté.",
+      "The AI response has an invalid format. Try another provider; no suggestions were added.",
+      "AI 回答格式无效。可尝试其他供应商；系统未添加任何建议。",
+    ),
+    query_limit: t(
+      "Un projet peut suivre 50 questions maximum.",
+      "A project can track up to 50 questions.",
+      "每个项目最多跟踪 50 个问题。",
+    ),
+    brand_limit: t(
+      "Un projet peut suivre 10 concurrents maximum.",
+      "A project can track up to 10 competitors.",
+      "每个项目最多跟踪 10 个竞争对手。",
+    ),
     retry_attempt_limit: t(
       "Cette question a atteint vingt tentatives. Vérifiez la connexion et les réglages avant de préparer une nouvelle campagne.",
       "This question has reached twenty attempts. Review the connection and settings before preparing a new campaign.",
@@ -386,6 +434,7 @@ export function friendly(code: string, t: Translate) {
     t(
       `L’opération n’a pas abouti (${code}). Réessayez ou consultez la documentation.`,
       `The operation failed (${code}). Try again or check the documentation.`,
+      `操作失败（${code}）。请重试或查看文档。`,
     )
   );
 }

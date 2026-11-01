@@ -8,6 +8,10 @@ export type Project = {
   name: string;
   domain: string;
   industry: string;
+  description?: string;
+  scan_settings?:
+    import("zod").infer<typeof import("./browser-storage").campaignPreferenceSchema> | null;
+  revision?: number;
   language: string;
   country: string;
   created_at: string;

@@ -181,7 +181,7 @@ test("real browser: Karburo, cost preview, schedules, branded PDF, web evidence,
     await page.evaluate(() => (window as unknown as Record<string, unknown>).unsafeFixtureExecuted),
   ).toBeUndefined();
   await page.getByRole("button", { name: "Close / Fermer" }).click();
-  await page.getByRole("button", { name: "Passer en anglais" }).click();
+  await page.getByLabel("Langue de l’interface", { exact: true }).selectOption("en");
   await expect(page.getByRole("heading", { name: "History & exports", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Menu", exact: true }).click();

@@ -71,6 +71,20 @@
       "when": 1793507248354,
       "tag": "0009_daffy_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793507865587,
+      "tag": "0010_naive_red_wolf",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793507918770,
+      "tag": "0011_striped_mulholland_black",
+      "breakpoints": true
     }
   ]
 }

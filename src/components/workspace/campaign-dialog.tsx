@@ -52,6 +52,7 @@ export function CampaignDialog({
   error = "",
   onConnect,
   requestedProvider,
+  initialSettings,
 }: {
   project: Project;
   state: State;
@@ -63,6 +64,7 @@ export function CampaignDialog({
   error?: string;
   onConnect?: (provider: Provider) => void;
   requestedProvider?: Provider;
+  initialSettings?: Partial<CampaignInput>;
 }) {
   const [providers, setProviders] = useState<Provider[]>(state.credentials.map((c) => c.provider));
   const [samples, setSamples] = useState(1),
@@ -82,9 +84,14 @@ export function CampaignDialog({
   }, []);
   const hydrated = hydratedKey === storageKey;
   useEffect(() => {
-    const { value, available } = readBrowserValue(storageKey, campaignPreferenceSchema);
+    const { value: localValue, available } = readBrowserValue(storageKey, campaignPreferenceSchema);
+    const value =
+      initialSettings ??
+      (localValue?.serverRevision === (project.revision ?? 1)
+        ? localValue
+        : (project.scan_settings ?? localValue));
     if (value) {
-      const selected = value.providers.filter((pr) =>
+      const selected = (value.providers ?? []).filter((pr) =>
         state.credentials.some((c) => c.provider === pr),
       );
       if (
@@ -94,13 +101,16 @@ export function CampaignDialog({
       )
         selected.push(requestedProvider);
       setProviders(selected);
-      setSamples(value.samples);
+      setSamples(value.samples ?? 1);
       setMode(
         value.mode === "web" && selected.some((pr) => !supportsWebSearch(pr))
           ? "baseline"
-          : value.mode,
+          : (value.mode ?? "baseline"),
       );
-      setOpenrouterModel(value.openrouterModel);
+      setOpenrouterModel(value.openrouterModel ?? OPENROUTER_MODEL_IDS[0]);
+      if (initialSettings?.intervalHours) setInterval(initialSettings.intervalHours);
+      if (initialSettings?.firstRunAt)
+        setFirst(localDateTime(new Date(initialSettings.firstRunAt)));
     }
     setSavedLocally(available);
     setHydratedKey(storageKey);
@@ -110,7 +120,7 @@ export function CampaignDialog({
       setSavedLocally(
         saveBrowserValue(
           storageKey,
-          { providers, samples, mode, openrouterModel },
+          { providers, samples, mode, openrouterModel, serverRevision: project.revision ?? 1 },
           campaignPreferenceSchema,
         ),
       );
@@ -197,8 +207,8 @@ export function CampaignDialog({
           <p className="small muted" role="status">
             {savedLocally
               ? t(
-                  "Vos choix sont mémorisés sur cet appareil.",
-                  "Your choices are remembered on this device.",
+                  "Enregistrez ces réglages pour les retrouver sur vos appareils. Les choix temporaires restent mémorisés ici.",
+                  "Save these settings to use them across devices. Temporary choices are remembered here.",
                 )
               : t(
                   "Ce navigateur bloque la mémorisation de vos choix.",
@@ -404,6 +414,33 @@ export function CampaignDialog({
             <p className="alert error" role="alert">
               {friendly(connectionError || estimateError || error, t)}
             </p>
+          )}
+          {!schedule && (
+            <Button
+              type="button"
+              variant="outline"
+              className="full"
+              disabled={busy || checking}
+              onClick={async () => {
+                setChecking(true);
+                setConnectionError("");
+                try {
+                  await api(`projects/${project.id}/scan-settings`, "POST", {
+                    providers,
+                    samples,
+                    mode,
+                    openrouterModel,
+                  });
+                  onClose();
+                } catch (e) {
+                  if (mounted.current) setConnectionError((e as Error).message);
+                } finally {
+                  if (mounted.current) setChecking(false);
+                }
+              }}
+            >
+              {t("Enregistrer sans lancer", "Save without launching")}
+            </Button>
           )}
           <Button className="full" disabled={busy || checking || !ready}>
             {schedule ? <CalendarClock size={15} /> : <Play size={15} />}
