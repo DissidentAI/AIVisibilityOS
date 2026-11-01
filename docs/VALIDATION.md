@@ -6,9 +6,9 @@
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Migrations sur base vide et seconde application idempotente | Réussite                                                                           |
 | TypeScript strict                                           | Réussite                                                                           |
-| Tests unitaires + intégration PostgreSQL                    | **75 tests réussis**                                                               |
+| Tests unitaires + intégration PostgreSQL                    | **81 tests réussis**                                                               |
 | Build Next.js production standalone                         | Réussite                                                                           |
-| Parcours navigateur Chromium et WebKit                      | **9 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
+| Parcours navigateur Chromium et WebKit                      | **11 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                     |
 | Audit npm, dépendances de production et développement       | **0 vulnérabilité signalée** au contrôle effectué                                  |
 | Connexion réelle OpenAI                                     | Non vérifiée : aucune clé réelle fournie                                           |
 | Connexion réelle Gemini                                     | Non vérifiée : aucune clé réelle fournie                                           |

@@ -39,6 +39,8 @@ export type Run = {
 };
 export type ResponseRecord = {
   id: string;
+  retry_run_id?: string | null;
+  source_response_id?: string | null;
   run_id: string;
   query_text: string;
   provider: Provider;

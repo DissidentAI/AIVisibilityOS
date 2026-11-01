@@ -1,5 +1,9 @@
 # Interface et mouvement / Interface and motion
 
+L’évolution du 1er novembre s’inspire de la hiérarchie éditoriale observée sur [oyin.design](https://www.oyin.design/) : titres expressifs, petits repères typographiques et respirations entre sections. Elle utilise une palette papier/encre chaude, des titres en police système à empattements et l’accent ambre propre à l’application. Aucun actif du site n’est copié. La navigation conserve son verre translucide ; les tableaux privilégient la lisibilité. Les animations restent interrompables et aucun écran d’introduction ne bloque l’accès aux mesures.
+
+Le journal se transforme en lignes structurées sur téléphone, avec recherche, filtres et boutons de reprise. Les changements de progression utilisent une transition de largeur, arrêtée en mouvement réduit. Les opportunités sont présentées comme des notes éditoriales : fait, hypothèse, action, preuves.
+
 L’interface utilise une palette ambre et encre, des surfaces translucides, une navigation flottante et Manrope Variable servie localement. Les thèmes clair/sombre, la langue et la pause des animations sont conservés sur l’appareil lorsque son navigateur autorise le stockage local. La licence OFL de Manrope est incluse dans la distribution standalone, comme celle de Noto Sans utilisée dans les PDF.
 
 Les contrastes chauds, les formes arrondies et le mouvement de [Karburo](https://karburo.io/fr-fr/) ont servi de référence visuelle ; aucune illustration ou ressource du site n’est réutilisée. L’identité et la composition sont propres à AI Visibility OS.

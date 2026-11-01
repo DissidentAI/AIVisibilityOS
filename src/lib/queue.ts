@@ -58,7 +58,10 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
     const reported = job.provider === "openrouter" ? result?.reportedCostMicros : null;
     const cachedInput = ["kimi", "mimo"].includes(job.provider) ? (result?.cachedInput ?? 0) : 0;
     const rejectedBeforeInference =
-      errorCode === "provider_http_401" || errorCode === "mimo_web_search_disabled";
+      errorCode === "provider_http_401" ||
+      errorCode === "mimo_web_search_disabled" ||
+      errorCode === "credentials_missing" ||
+      errorCode === "model_configuration_changed";
     const cost = rejectedBeforeInference
       ? 0
       : reported != null
@@ -93,7 +96,9 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
       const stoppedCode =
         errorCode === "mimo_web_search_disabled"
           ? "mimo_web_search_disabled_before_request"
-          : "provider_auth_failed_before_request";
+          : errorCode === "provider_http_401"
+            ? "provider_auth_failed_before_request"
+            : errorCode!;
       await tx`with stopped as (
         update ai_responses set status='failed',error_code=${stoppedCode},cost_micros=0,finished_at=now()
         where org_id=${job.org_id} and run_id=${job.run_id} and provider=${job.provider} and status='queued' returning id

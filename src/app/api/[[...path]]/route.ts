@@ -23,6 +23,7 @@ import { saveSchedule, listSchedules, setScheduleEnabled } from "@/lib/schedules
 import { getBranding, saveBranding, createReport, listReports, getReport } from "@/lib/reports";
 import { renderReport } from "@/lib/report-pdf";
 import { PROVIDERS } from "@/lib/providers";
+import { createRetry, estimateRetry } from "@/lib/retries";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function body(request: Request, maxBytes = 100_000) {
@@ -208,6 +209,18 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       if (!rows.length) throw new AppError("not_found", 404);
       return json({ ok: true });
     }
+    if (
+      path[0] === "runs" &&
+      path[1] &&
+      path[2] === "retry" &&
+      method === "POST" &&
+      (path.length === 3 || (path.length === 4 && path[3] === "estimate"))
+    ) {
+      const data = await body(request);
+      if (path[3] === "estimate") return json(await estimateRetry(user, path[1], data));
+      await rateLimit(`campaign:${user.id}`, 10, 3600);
+      return json(await createRetry(user, path[1], data), 201);
+    }
     if (route === "runs" && method === "POST") {
       await rateLimit(`campaign:${user.id}`, 10, 3600);
       return json(await createRun(user, await body(request)), 201);
@@ -255,6 +268,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       const state = await getState(user);
       const runs = await sql`select * from measurement_runs where org_id=${user.org_id}`;
       const responses = await sql`select * from ai_responses where org_id=${user.org_id}`;
+      const retries = await sql`select * from response_retries where org_id=${user.org_id}`;
       const mentions = await sql`select * from brand_mentions where org_id=${user.org_id}`;
       const citations = await sql`select * from citations where org_id=${user.org_id}`;
       const usage = await sql`select * from usage_records where org_id=${user.org_id}`;
@@ -267,6 +281,7 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           ...state,
           runs,
           responses,
+          retries,
           mentions,
           citations,
           usageRecords: usage,

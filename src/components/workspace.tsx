@@ -31,6 +31,8 @@ import {
   History,
   CalendarClock,
   FileText,
+  Lightbulb,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { motion } from "motion/react";
@@ -69,6 +71,11 @@ import { CampaignDialog } from "./workspace/campaign-dialog";
 import { SchedulesPanel } from "./workspace/schedules-panel";
 import { ReportsPanel } from "./workspace/reports-panel";
 import { GroundedAnswer } from "./workspace/grounded-answer";
+import { HistoryPanel } from "./workspace/history-panel";
+import { RetryDialog } from "./workspace/retry-dialog";
+import { RunStatus } from "./workspace/run-status";
+import { OpportunitiesPanel } from "./workspace/opportunities-panel";
+import { canRetry, costSummary } from "@/lib/run-insights";
 type Tab =
   | "overview"
   | "queries"
@@ -78,6 +85,7 @@ type Tab =
   | "settings"
   | "usage"
   | "schedules"
+  | "opportunities"
   | "reports";
 export function Workspace() {
   const [lang, setLang] = useState<"fr" | "en">("fr"),
@@ -103,6 +111,26 @@ export function Workspace() {
     [response, setResponse] = useState<ResponseRecord | null>(null);
   const [credentialProvider, setCredentialProvider] = useState<Provider>("openai");
   const [returnToCampaign, setReturnToCampaign] = useState(false);
+  const [retry, setRetry] = useState<{ detail: RunDetail; responseIds: string[] } | null>(null);
+  function openRetry(ids: string[]) {
+    if (!detail) return;
+    setError("");
+    setResponse(null);
+    setRetry({ detail, responseIds: ids });
+  }
+  async function openRun(id: string) {
+    try {
+      // A retained child may outlive its source, and the selector lists only 100 runs.
+      const d = await api<RunDetail>(`runs/${id}`);
+      setRuns((rs) => (rs.some((r) => r.id === id) ? rs : [d.run, ...rs]));
+      setRunId(id);
+      setDetail(d);
+      setResponse(null);
+      setTab("history");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "internal_error");
+    }
+  }
   const { sidebarRef, shellRef, triggerRef, isMobile } = useMobileNavigation(mobile, () =>
     setMobile(false),
   );
@@ -168,13 +196,31 @@ export function Workspace() {
     const rs = await api<Run[]>(`runs?project=${projectId}`);
     if (seq !== activeRequest.current) return;
     setRuns(rs);
-    const selected = rs.find((r) => r.id === runId)?.id ?? rs[0]?.id;
+    const selected = runId || rs[0]?.id;
     if (!selected) {
       setDetail(null);
       return;
     }
-    const d = await api<RunDetail>(`runs/${selected}`);
-    if (seq === activeRequest.current) setDetail(d);
+    let d: RunDetail;
+    try {
+      d = await api<RunDetail>(`runs/${selected}`);
+    } catch (e) {
+      if (seq !== activeRequest.current) return;
+      if (e instanceof Error && e.message === "not_found") {
+        setRunId("");
+        setDetail(null);
+        return;
+      }
+      throw e;
+    }
+    if (seq === activeRequest.current) {
+      if (d.run.project_id !== projectId) {
+        setRunId("");
+        return;
+      }
+      if (!rs.some((r) => r.id === selected)) setRuns([d.run, ...rs]);
+      setDetail(d);
+    }
   }, [projectId, runId]);
   useEffect(() => {
     setDetail(null);
@@ -217,6 +263,7 @@ export function Workspace() {
     { id: "queries", title: t("Requêtes suivies", "Tracked queries"), icon: MessageSquareText },
     { id: "competitors", title: t("Concurrents", "Competitors"), icon: Users },
     { id: "sources", title: t("Sources & citations", "Sources & citations"), icon: Globe2 },
+    { id: "opportunities", title: t("Opportunités GEO", "GEO opportunities"), icon: Lightbulb },
     { id: "history", title: t("Historique & exports", "History & exports"), icon: History },
     { id: "schedules", title: t("Planification", "Scheduling"), icon: CalendarClock },
     { id: "reports", title: t("Rapports clients", "Client reports"), icon: FileText },
@@ -230,6 +277,7 @@ export function Workspace() {
         .size
     : 0;
   const metric = mentionRate(count, valid.length);
+  const costs = costSummary(detail?.responses ?? []);
   const date = (value: string) =>
     new Date(value).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB", {
       dateStyle: "medium",
@@ -736,6 +784,7 @@ export function Workspace() {
                               ? t("Web", "Web")
                               : t("Sans web", "No web")}{" "}
                             · {r.valid}/{r.total}
+                            {r.snapshot.parameters.retry ? t(" · Reprise", " · Retry") : ""}
                           </option>
                         ))}
                       </select>
@@ -747,6 +796,12 @@ export function Workspace() {
                       </a>
                     )}
                   </div>
+                  {detail && ["overview", "history", "opportunities"].includes(tab) && (
+                    <RunStatus detail={detail} t={t} onRetry={openRetry} onRun={openRun} />
+                  )}
+                  {tab === "opportunities" && (
+                    <OpportunitiesPanel detail={detail} t={t} date={date} onOpen={setResponse} />
+                  )}
                   {tab === "schedules" && (
                     <SchedulesPanel
                       key={project.id}
@@ -819,21 +874,24 @@ export function Workspace() {
                         />
                         <Metric
                           label={t("Coût API estimé", "Estimated API cost")}
-                          value={
-                            detail
-                              ? money(
-                                  detail.responses.reduce((s, r) => s + (r.cost_micros ?? 0), 0),
-                                )
-                              : "—"
-                          }
+                          value={costs.total === null ? "—" : money(costs.total)}
                           icon={<Wallet size={18} />}
                           note={t("USD · consommation connue uniquement", "USD · known usage only")}
                           sub={
-                            detail?.responses.some(
-                              (r) => r.status !== "queued" && r.cost_micros === null,
-                            )
-                              ? t("Des coûts restent inconnus", "Some costs remain unknown")
-                              : t("Tarifs de référence, hors taxes", "Reference prices, before tax")
+                            costs.unknown
+                              ? t(
+                                  `${costs.unknown} coûts inconnus · ${costs.known} connus`,
+                                  `${costs.unknown} unknown costs · ${costs.known} known`,
+                                )
+                              : costs.pending
+                                ? t(
+                                    "Coût disponible après exécution",
+                                    "Cost available after execution",
+                                  )
+                                : t(
+                                    "Tarifs de référence, hors taxes",
+                                    "Reference prices, before tax",
+                                  )
                           }
                         />
                       </div>
@@ -1156,83 +1214,17 @@ export function Workspace() {
                     </section>
                   )}
                   {tab === "history" && (
-                    <section className="card">
-                      <div className="card-heading">
-                        <div>
-                          <h2>{t("Journal des réponses", "Response ledger")}</h2>
-                          <p>
-                            {t(
-                              "Question exacte, modèle, statut et réponse intégrale",
-                              "Exact question, model, status and full response",
-                            )}
-                          </p>
-                        </div>
-                        <span className="badge">
-                          {detail?.responses.length ?? 0} {t("exécutions", "executions")}
-                        </span>
-                      </div>
-                      {detail ? (
-                        <div className="table-wrap">
-                          <table>
-                            <thead>
-                              <tr>
-                                <th>{t("Question", "Question")}</th>
-                                <th>{t("Fournisseur", "Provider")}</th>
-                                <th>{t("Statut", "Status")}</th>
-                                <th>{t("Coût estimé", "Est. cost")}</th>
-                                <th />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {detail.responses.map((r) => (
-                                <tr key={r.id}>
-                                  <td className="question-cell">
-                                    {r.query_text}
-                                    <small className="block muted">
-                                      #{r.sample} ·{" "}
-                                      {r.finished_at
-                                        ? date(r.finished_at)
-                                        : t("En attente", "Pending")}
-                                    </small>
-                                  </td>
-                                  <td>
-                                    {r.provider}
-                                    <small className="block muted mono">
-                                      {r.returned_model || r.model}
-                                    </small>
-                                  </td>
-                                  <td>
-                                    <span
-                                      className={`badge ${r.status === "succeeded" ? "green" : ["failed", "invalid", "uncertain"].includes(r.status) ? "red" : ""}`}
-                                    >
-                                      {status(r.status)}
-                                    </span>
-                                  </td>
-                                  <td>{r.cost_micros == null ? "—" : money(r.cost_micros)}</td>
-                                  <td>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setResponse(r)}
-                                    >
-                                      {t("Ouvrir", "Open")}
-                                      <ArrowRight size={13} />
-                                    </Button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <Empty title={t("Votre historique est vide", "Your history is empty")}>
-                          {t(
-                            "La première campagne apparaîtra ici dès son lancement.",
-                            "Your first campaign will appear here as soon as it starts.",
-                          )}
-                        </Empty>
-                      )}
-                    </section>
+                    <HistoryPanel
+                      key={detail?.run.id ?? "empty"}
+                      detail={detail}
+                      t={t}
+                      date={date}
+                      status={status}
+                      onOpen={setResponse}
+                      onRetry={openRetry}
+                      onRun={openRun}
+                      onSettings={() => setTab("settings")}
+                    />
                   )}
                 </>
               )}
@@ -1620,6 +1612,28 @@ export function Workspace() {
             }
           />
         )}
+        {retry && (
+          <RetryDialog
+            detail={retry.detail}
+            responseIds={retry.responseIds}
+            workerOnline={state.workerOnline}
+            t={t}
+            onClose={() => setRetry(null)}
+            onCreated={(id) => {
+              setRetry(null);
+              setRunId(id);
+              setTab("history");
+              setError("");
+              setNotice(
+                t(
+                  "Reprise mise en file. Les anciennes tentatives sont conservées.",
+                  "Retry queued. Earlier attempts are preserved.",
+                ),
+              );
+              refresh().catch((e) => setError(e.message));
+            }}
+          />
+        )}
         {(modal === "query" || modal === "brand") && project && (
           <Modal
             title={
@@ -1747,6 +1761,23 @@ export function Workspace() {
                   t,
                 )}
               </p>
+            )}
+            {response.retry_run_id ? (
+              <Button variant="outline" onClick={() => openRun(response.retry_run_id!)}>
+                {t("Voir la reprise", "View retry")}
+                <ArrowRight size={15} />
+              </Button>
+            ) : (
+              canRetry(response) && (
+                <Button
+                  variant="outline"
+                  disabled={!!detail?.run.pending}
+                  onClick={() => openRetry([response.id])}
+                >
+                  <RotateCcw size={15} />
+                  {t("Réessayer cette réponse", "Retry this response")}
+                </Button>
+              )
             )}
             <h3>{t("Extraits justifiant les mentions", "Evidence supporting mentions")}</h3>
             {detail?.mentions

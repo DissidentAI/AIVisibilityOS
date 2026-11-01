@@ -4,6 +4,8 @@
 
 [English documentation](docs/README.en.md) · [Installation VPS](docs/DEPLOYMENT.md) · [Méthodologie](docs/METHODOLOGY.md) · [Validation commerciale](docs/BUSINESS.md)
 
+[Audit produit et améliorations du 1er novembre 2026](docs/AUDIT-2026-11-01.md)
+
 AI Visibility OS est une application Community auto-hébergeable pour mesurer les mentions d’une marque et de ses concurrents dans un ensemble explicite de questions et de réponses d’API IA. Chaque mesure conserve la réponse, le modèle, les paramètres, la date, les extraits de mention et le coût estimé.
 
 > Il s’agit d’observations des **API officielles**, pas des interfaces grand public de ChatGPT, Gemini ou Kimi, ni d’une mesure de toute la visibilité sur Internet.
@@ -20,6 +22,8 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 - Brouillon de projet, dernier projet sélectionné et choix de campagne mémorisés dans le navigateur, séparément pour chaque compte. Aucune clé API dans le stockage local.
 - Campagnes à 1–5 échantillons par question/fournisseur, file PostgreSQL persistante et worker indépendant.
 - Réponses intégrales, mentions explicites, comparaisons, historique, incertitude statistique et CSV.
+- Reprise individuelle ou groupée des échecs avec aperçu budgétaire, protection contre les doublons et conservation des tentatives initiales. Recherche et filtres dans le journal, suivi des campagnes partielles et coûts inconnus explicites.
+- Opportunités éditoriales descriptives : écarts de mentions par question, faits/hypothèses/actions séparés, réponses justificatives consultables. Aucun audit de site ou lien de causalité inventé.
 - Budgets mensuels avec réservation atomique, aperçu du coût avant lancement et coûts inconnus conservés comme engagements prudents.
 - Campagnes planifiées toutes les 24 heures ou tous les 7 jours, pause/reprise et journal des échéances.
 - Mode API avec recherche web pour les cinq fournisseurs, citations structurées et pages trouvées distinguées. MiMo nécessite l’activation du plugin Web Search dans la console Xiaomi.
@@ -29,7 +33,7 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 - Navigation mobile avec gestion du focus, export des données personnelles et suppression du compte.
 - Migrations Drizzle, Docker Compose, reverse proxy HTTPS optionnel, tests PostgreSQL et navigateur.
 
-**Pas encore livré :** envoi périodique automatique des rapports, alertes sortantes, audit de pages, recommandations GEO, classification automatique du sentiment, comptes d’équipe, Stripe et cloud multi-tenant. Les rapports sont générés à la demande. Voir [le guide des workflows agences](docs/AGENCY-WORKFLOWS.md) et [la feuille de route](docs/ROADMAP.md).
+**Pas encore livré :** envoi périodique automatique des rapports, alertes sortantes, audit de pages et recommandations fondées sur cet audit, classification automatique du sentiment, comptes d’équipe, Stripe et cloud multi-tenant. Les rapports sont générés à la demande. Voir [le guide des workflows agences](docs/AGENCY-WORKFLOWS.md) et [la feuille de route](docs/ROADMAP.md).
 
 ## Démarrage local
 

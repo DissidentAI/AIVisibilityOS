@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { reportMetrics, type ReportPayload } from "./reports";
+import { retrySource } from "./run-insights";
 const font = () =>
   readFileSync(
     join(
@@ -101,6 +102,13 @@ export async function renderReport(payload: ReportPayload, reportId: string): Pr
     ),
   );
   const snap = d.run.snapshot;
+  if (retrySource(d))
+    text(
+      t(
+        "Campagne de reprise : échantillon sélectionné après échec, exclu des comparaisons historiques automatiques. Les tentatives initiales et leurs coûts sont conservés séparément.",
+        "Retry campaign: sample selected after failure, excluded from automatic historical comparisons. Original attempts and their costs are preserved separately.",
+      ),
+    );
   text(
     `${t("Mode", "Mode")} : ${snap.parameters.search === true ? t("API avec recherche web", "API with web search") : t("API sans recherche web", "API without web search")} · ${snap.project.language.toUpperCase()} / ${snap.project.country}`,
   );
@@ -120,7 +128,7 @@ export async function renderReport(payload: ReportPayload, reportId: string): Pr
   const known = d.responses.filter((r) => r.cost_micros !== null),
     cost = known.reduce((s, r) => s + r.cost_micros!, 0);
   text(
-    `${t("Coût estimé connu", "Known estimated cost")} : $${(cost / 1e6).toFixed(4)} USD · ${known.length}/${d.run.total} ${t("réponses avec coût connu", "responses with known cost")}. ${t("Estimation prudente, pas une facture. Les frais de recherche utilisent les tarifs payants sans déduire les franchises.", "Conservative estimate, not an invoice. Search fees use paid rates without deducting free allowances.")}`,
+    `${t("Coût estimé connu", "Known estimated cost")} : ${known.length ? `$${(cost / 1e6).toFixed(4)} USD` : t("Inconnu", "Unknown")} · ${known.length}/${d.run.total} ${t("réponses avec coût connu", "responses with known cost")}. ${t("Estimation prudente, pas une facture. Les frais de recherche utilisent les tarifs payants sans déduire les franchises.", "Conservative estimate, not an invoice. Search fees use paid rates without deducting free allowances.")}`,
   );
   doc.addPage();
   title(t("Détail par question", "Results by question"));

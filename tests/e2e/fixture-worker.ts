@@ -4,10 +4,13 @@ if (!process.env.DATABASE_URL || !new URL(process.env.DATABASE_URL).pathname.end
   throw new Error("Fixtures may only run in a _test database");
 const { workOnce } = await import("../../src/lib/queue");
 const { sql } = await import("../../src/db/client");
+const { ProviderError } = await import("../../src/lib/providers");
 let calls = 0;
 while (
   await workOnce(async (provider, _key, _query, _system, mode) => {
     calls++;
+    if (process.env.E2E_FAILURES === "1" && _query.includes("[RETRY_FIXTURE]"))
+      throw new ProviderError("network_or_timeout");
     return {
       status: "succeeded",
       text: `TEST SYNTHÉTIQUE — ${calls <= 7 ? "Karburo. " : ""}Concurrent Test.`,

@@ -2,7 +2,7 @@
 
 ## Ce qui est observé
 
-Une campagne représente le produit cartésien questions × fournisseurs sélectionnés × répétitions (1–5). Tous les appels sont des conversations neuves, sans historique ni personnalisation. La marque et les concurrents ne sont pas injectés dans l’instruction système. Les noms éventuellement présents dans une question écrite par l’utilisateur restent présents.
+Une campagne normale représente le produit cartésien questions × fournisseurs sélectionnés × répétitions (1–5). Une **reprise** contient seulement les réponses échouées choisies, avec leur question, fournisseur, modèle, mode et numéro d’échantillon d’origine. Tous les appels sont des conversations neuves, sans historique ni personnalisation. La marque et les concurrents ne sont pas injectés dans l’instruction système. Les noms éventuellement présents dans une question écrite par l’utilisateur restent présents.
 
 Le pays à deux lettres est une indication textuelle dans l’instruction système. Aucune géolocalisation, IP locale au pays ou personnalisation du produit grand public n’est revendiquée. La langue est une instruction, pas une garantie de respect par le modèle. Une réponse valide peut néanmoins être incorrecte factuellement.
 
@@ -30,6 +30,10 @@ Références : [OpenAI génération de texte](https://developers.openai.com/api/
 Seules les réponses `succeeded` entrent dans les fréquences. Les autres statuts restent visibles dans le journal. Une campagne partielle n’est jamais présentée comme complète. Les graphiques historiques n’affichent que les campagnes entièrement valides, de configuration identique et de composition identique en modèles effectivement retournés ; les tailles d’échantillon restent consultables. Un identifiant retourné manquant empêche cette comparaison, sans empêcher de consulter la campagne. Pour OpenRouter, la composition en fournisseurs d’exécution doit aussi être connue et identique ; elle est conservée dans `parameters.execution.servingProvider`.
 
 ## Mentions et score
+
+Les reprises sont des échantillons sélectionnés après échec : leur taux descriptif reste consultable mais elles ne participent ni aux séries historiques automatiques ni aux comparaisons avant/après des rapports. La campagne initiale n’est jamais réécrite ou complétée silencieusement. La table `response_retries`, les identifiants `source_response_id` / `retry_run_id` et `parameters.retry` tracent les tentatives. Le budget est réservé à nouveau uniquement pour les appels ciblés ; les dépenses et engagements inconnus antérieurs restent comptés. Les erreurs explicitement survenues avant appel (`credentials_missing`, `model_configuration_changed`) libèrent leur réservation ; une erreur réseau ne prouve pas l’absence de facturation.
+
+Les opportunités éditoriales sont des constats descriptifs par question : nombre de réponses valides mentionnant chaque marque, même dénominateur, extrait et réponse consultables. Elles ne constituent ni un audit des pages ni une preuve de causalité. Les liens cités ne sont pas visités automatiquement et aucune amélioration du classement n’est garantie.
 
 `Brand Mention Rate = Visibility Score = 100 × nombre de réponses valides mentionnant la marque / nombre total de réponses valides`.
 

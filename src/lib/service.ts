@@ -256,11 +256,47 @@ export async function estimateRun(user: User, data: unknown) {
   });
 }
 // Caller holds the installation advisory lock; scheduler and manual launches share this path.
+export type MeasurementTask = {
+  queryText: string;
+  provider: Provider;
+  sample: number;
+  sourceResponseId?: string;
+};
+export function assertSnapshotAvailable(snapshot: Snapshot) {
+  if (snapshot.pricing.date !== PRICE_DATE) throw new AppError("model_configuration_changed", 409);
+  for (const provider of snapshot.providers) {
+    const model = modelConfiguration(provider, snapshot.models[provider]);
+    const frozen = (
+      snapshot.parameters.providers as
+        Record<string, { endpoint: string; request: unknown }> | undefined
+    )?.[provider];
+    if (
+      !model ||
+      (frozen &&
+        (frozen.endpoint !==
+          requestEndpoint(
+            provider,
+            snapshot.parameters.search === true ? "web" : "baseline",
+            model,
+          ) ||
+          snapshotJson(frozen.request) !==
+            snapshotJson(
+              requestOptions(
+                provider,
+                snapshot.parameters.search === true ? "web" : "baseline",
+                model,
+              ),
+            )))
+    )
+      throw new AppError("model_configuration_changed", 409);
+  }
+}
 export async function enqueueSnapshot(
   tx: TransactionSql,
   user: User,
   projectId: string,
   snapshot: Snapshot,
+  selectedTasks?: MeasurementTask[],
 ) {
   await tx`select id from organizations where id=${user.org_id} for update`;
   const [project] =
@@ -269,11 +305,7 @@ export async function enqueueSnapshot(
   const [pending] =
     await tx`select count(*)::int as n from ai_responses a join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where a.org_id=${user.org_id} and r.project_id=${projectId} and a.status in ('queued','running')`;
   if (pending.n > 0) throw new AppError("campaign_already_running", 409);
-  if (
-    snapshot.providers.some((p) => !modelConfiguration(p, snapshot.models[p])) ||
-    snapshot.pricing.date !== PRICE_DATE
-  )
-    throw new AppError("model_configuration_changed", 409);
+  assertSnapshotAvailable(snapshot);
   // Never silently substitute a model: its retirement starts a new measurement series.
   if (snapshot.providers.includes("openai") && new Date() >= new Date("2027-01-14T00:00:00Z"))
     throw new AppError("model_retired", 409);
@@ -285,20 +317,43 @@ export async function enqueueSnapshot(
       and a.error_code='provider_http_401' and a.started_at>=c.updated_at and a.finished_at>c.updated_at)`;
   const refused = snapshot.providers.find((pr) => rejected.some((c) => c.provider === pr));
   if (refused) throw new AppError(`provider_auth_rejected_${refused}`);
-  const total = snapshotReservation(snapshot),
+  const tasks: MeasurementTask[] =
+    selectedTasks ??
+    snapshot.queries.flatMap((q) =>
+      snapshot.providers.flatMap((provider) =>
+        Array.from({ length: snapshot.samples }, (_, i) => ({
+          queryText: q.text,
+          provider,
+          sample: i + 1,
+        })),
+      ),
+    );
+  const total = tasks.reduce(
+      (sum, task) =>
+        sum +
+        reserveMicros(
+          task.provider,
+          task.queryText,
+          snapshot.system,
+          snapshot.parameters.search === true ? "web" : "baseline",
+          modelConfiguration(task.provider, snapshot.models[task.provider]),
+        ),
+      0,
+    ),
     budget = await budgetStatus(tx, user);
   if (total > Math.min(budget.orgRemaining, budget.installationRemaining))
     throw new AppError("budget_exceeded", 409);
   const hash = digest(snapshotJson(snapshot));
   const [run] =
     await tx`insert into measurement_runs (org_id,project_id,config_hash,snapshot) values (${user.org_id},${projectId},${hash},${JSON.stringify(snapshot)}::jsonb) returning id`;
-  for (const q of snapshot.queries)
-    for (const provider of snapshot.providers)
-      for (let sample = 1; sample <= snapshot.samples; sample++) {
-        const [response] =
-          await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,channel,sample,parameters) values (${user.org_id},${run.id},${q.text},${provider},${snapshot.models[provider]},${provider === "openrouter" ? "openrouter_api" : "official_api"},${sample},${JSON.stringify(snapshot.parameters)}::jsonb) returning id`;
-        await tx`insert into usage_records (org_id,response_id,amount_micros) values (${user.org_id},${response.id},${reserveMicros(provider, q.text, snapshot.system, snapshot.parameters.search === true ? "web" : "baseline", modelConfiguration(provider, snapshot.models[provider]))})`;
-      }
+  for (const task of tasks) {
+    const { provider, sample, queryText } = task;
+    const [response] =
+      await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,channel,sample,parameters) values (${user.org_id},${run.id},${queryText},${provider},${snapshot.models[provider]},${provider === "openrouter" ? "openrouter_api" : "official_api"},${sample},${JSON.stringify(snapshot.parameters)}::jsonb) returning id`;
+    await tx`insert into usage_records (org_id,response_id,amount_micros) values (${user.org_id},${response.id},${reserveMicros(provider, queryText, snapshot.system, snapshot.parameters.search === true ? "web" : "baseline", modelConfiguration(provider, snapshot.models[provider]))})`;
+    if (task.sourceResponseId)
+      await tx`insert into response_retries (org_id,source_response_id,retry_response_id) values (${user.org_id},${task.sourceResponseId},${response.id})`;
+  }
   return { id: run.id as string, reservedMicros: total };
 }
 export async function createRun(user: User, data: unknown) {
@@ -327,7 +382,12 @@ export async function getRun(user: User, id: string): Promise<RunDetail> {
   const [responses, mentions, citations] = await Promise.all([
     sql<
       ResponseRecord[]
-    >`select id,run_id,query_text,provider,model,returned_model,channel,sample,parameters,status,answer,grounding,error_code,request_id,input_tokens,output_tokens,cost_micros,started_at,finished_at from ai_responses where run_id=${id} and org_id=${user.org_id} order by query_text,provider,sample`,
+    >`select a.id,a.run_id,a.query_text,a.provider,a.model,a.returned_model,a.channel,a.sample,a.parameters,a.status,a.answer,a.grounding,a.error_code,a.request_id,a.input_tokens,a.output_tokens,a.cost_micros,a.started_at,a.finished_at,
+    child.run_id as retry_run_id, origin.source_response_id from ai_responses a
+    left join response_retries next on next.source_response_id=a.id and next.org_id=a.org_id
+    left join ai_responses child on child.id=next.retry_response_id and child.org_id=a.org_id
+    left join response_retries origin on origin.retry_response_id=a.id and origin.org_id=a.org_id
+    where a.run_id=${id} and a.org_id=${user.org_id} order by a.query_text,a.provider,a.sample`,
     sql<
       Mention[]
     >`select m.* from brand_mentions m join ai_responses a on a.id=m.response_id and a.org_id=m.org_id where a.run_id=${id} and m.org_id=${user.org_id}`,

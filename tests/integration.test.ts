@@ -25,6 +25,9 @@ import { GET, POST, DELETE } from "../src/app/api/[[...path]]/route";
 import type { User } from "../src/lib/types";
 import { parseResponse, ProviderError } from "../src/lib/providers";
 import { MODELS } from "../src/lib/provider-config";
+import { createRetry, estimateRetry } from "../src/lib/retries";
+import { comparisonSignature } from "../src/lib/measurement";
+import { costSummary, editorialOpportunities } from "../src/lib/run-insights";
 afterEach(() => vi.restoreAllMocks());
 beforeAll(async () => {
   if (!new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"))
@@ -733,6 +736,220 @@ const fixtureResult = {
   raw: { syntheticFixture: true },
   citations: [],
 };
+describe("traceable retries, isolated tenants and honest summaries", () => {
+  async function failedCampaign() {
+    const a = await prepared();
+    const run = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openai", "gemini"],
+      samples: 2,
+    });
+    let n = 0;
+    while (
+      await workOnce(async () => {
+        n++;
+        if (n <= 3) throw new ProviderError("network_or_timeout");
+        return fixtureResult;
+      })
+    ) {}
+    return { ...a, run, detail: await getRun(a.user, run.id) };
+  }
+  test("retries exactly selected failed samples with immutable origin, additional budget and CSV lineage", async () => {
+    const a = await failedCampaign();
+    const target = a.detail.responses.find((r) => r.status === "failed")!;
+    const before = await sql`select * from ai_responses where id=${target.id}`;
+    const usageBefore =
+      await sql`select amount_micros,kind from usage_records where response_id=${target.id}`;
+    const quote = await estimateRetry(a.user, a.run.id, { responseIds: [target.id] });
+    expect(quote.responses).toBe(1);
+    expect(quote.uncertain).toBe(1);
+    expect(quote.reservedMicros).toBe(Number(usageBefore[0].amount_micros));
+    // Later editable project changes never rewrite the retry question/brand snapshot.
+    await sql`update brands set name='Edited since the original run' where project_id=${a.projectId} and is_primary=true`;
+    const retry = await createRetry(a.user, a.run.id, {
+      responseIds: quote.responseIds,
+      expectedQuoteHash: quote.quoteHash,
+    });
+    const child = await getRun(a.user, retry.id);
+    expect(child.run.total).toBe(1);
+    expect(child.responses[0]).toMatchObject({
+      query_text: target.query_text,
+      provider: target.provider,
+      model: target.model,
+      sample: target.sample,
+      source_response_id: target.id,
+    });
+    expect(child.run.snapshot.brands).toEqual(a.detail.run.snapshot.brands);
+    expect(child.run.snapshot.system).toBe(a.detail.run.snapshot.system);
+    expect(await sql`select * from ai_responses where id=${target.id}`).toEqual(before);
+    expect(
+      await sql`select amount_micros,kind from usage_records where response_id=${target.id}`,
+    ).toEqual(usageBefore);
+    expect(
+      (await getRun(a.user, a.run.id)).responses.find((r) => r.id === target.id)?.retry_run_id,
+    ).toBe(retry.id);
+    await workOnce(async () => fixtureResult);
+    expect(comparisonSignature((await getRun(a.user, retry.id)).responses)).toBeNull();
+    const csv = await (await route("GET", `runs/${retry.id}/export`, a.cookie)).text();
+    expect(csv).toContain("source_response_id");
+    expect(csv).toContain(target.id);
+    expect(csv).toContain(a.run.id);
+    const exported = await (await route("GET", "account/export", a.cookie)).json();
+    expect(exported.retries).toHaveLength(1);
+    const report = await createReport(a.user, { runId: retry.id, locale: "fr" });
+    expect(
+      (await getReport(a.user, report.id)).payload.current.run.snapshot.parameters.retry,
+    ).toBeTruthy();
+  });
+  test("bulk retry excludes successes and duplicate concurrent launches reserve only once", async () => {
+    const a = await failedCampaign();
+    const quote = await estimateRetry(a.user, a.run.id, {});
+    expect(quote.responses).toBe(3);
+    const payload = { responseIds: quote.responseIds, expectedQuoteHash: quote.quoteHash };
+    const launches = await Promise.allSettled([
+      createRetry(a.user, a.run.id, payload),
+      createRetry(a.user, a.run.id, payload),
+    ]);
+    expect(launches.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(launches.filter((r) => r.status === "rejected")).toHaveLength(1);
+    expect((await sql`select count(*)::int as n from response_retries`)[0].n).toBe(3);
+    expect((await sql`select count(*)::int as n from measurement_runs`)[0].n).toBe(2);
+    await expect(estimateRetry(a.user, a.run.id, {})).rejects.toThrow("retry_nothing_to_retry");
+    // A failed new attempt can itself be retried, with its own lineage.
+    while (
+      await workOnce(async () => {
+        throw new ProviderError("provider_http_503");
+      })
+    ) {}
+    const childId = (await getRun(a.user, a.run.id)).responses.find(
+      (r) => r.retry_run_id,
+    )!.retry_run_id!;
+    const next = await estimateRetry(a.user, childId, {});
+    await createRetry(a.user, childId, {
+      responseIds: next.responseIds,
+      expectedQuoteHash: next.quoteHash,
+    });
+    expect((await sql`select count(*)::int as n from response_retries`)[0].n).toBe(6);
+  });
+  test("retry routes enforce session, origin, ownership, failed status and database organization links", async () => {
+    const a = await failedCampaign(),
+      b = await owner("other-retry");
+    const target = a.detail.responses.find((r) => r.status === "failed")!;
+    const success = a.detail.responses.find((r) => r.status === "succeeded")!;
+    const quote = await estimateRetry(a.user, a.run.id, { responseIds: [target.id] });
+    const payload = { responseIds: quote.responseIds, expectedQuoteHash: quote.quoteHash };
+    expect((await route("POST", `runs/${a.run.id}/retry`, "", payload)).status).toBe(401);
+    expect(
+      (await route("POST", `runs/${a.run.id}/retry`, a.cookie, payload, "https://evil.example"))
+        .status,
+    ).toBe(403);
+    for (const suffix of ["retry", "retry/estimate"])
+      expect((await route("POST", `runs/${a.run.id}/${suffix}`, b.cookie, payload)).status).toBe(
+        404,
+      );
+    await expect(estimateRetry(a.user, a.run.id, { responseIds: [success.id] })).rejects.toThrow(
+      "retry_not_failed",
+    );
+    await expect(estimateRetry(a.user, a.run.id, { responseIds: [b.user.id] })).rejects.toThrow(
+      "not_found",
+    );
+    await expect(
+      sql`insert into response_retries(org_id,source_response_id,retry_response_id) values(${b.user.org_id},${target.id},${success.id})`,
+    ).rejects.toThrow();
+    const response = await route("POST", `runs/${a.run.id}/retry`, a.cookie, payload);
+    expect(response.status).toBe(201);
+    expect((await route("POST", `runs/${a.run.id}/retry`, a.cookie, payload)).status).toBe(409);
+  });
+  test("retry quote changes, exhausted budget, removed credentials and stale models cannot enqueue", async () => {
+    const a = await failedCampaign();
+    const quote = await estimateRetry(a.user, a.run.id, {});
+    await expect(
+      createRetry(a.user, a.run.id, {
+        responseIds: quote.responseIds,
+        expectedQuoteHash: "0".repeat(64),
+      }),
+    ).rejects.toThrow("configuration_changed");
+    await sql`update organizations set budget_micros=1 where id=${a.user.org_id}`;
+    expect((await estimateRetry(a.user, a.run.id, {})).affordable).toBe(false);
+    await expect(
+      createRetry(a.user, a.run.id, { expectedQuoteHash: quote.quoteHash }),
+    ).rejects.toThrow("budget_exceeded");
+    await sql`update organizations set budget_micros=20000000 where id=${a.user.org_id}`;
+    await sql`delete from credentials where org_id=${a.user.org_id}`;
+    await expect(
+      createRetry(a.user, a.run.id, { expectedQuoteHash: quote.quoteHash }),
+    ).rejects.toThrow("credentials_required");
+    await sql`update measurement_runs set snapshot=jsonb_set(snapshot,'{pricing,date}','"old-catalog"'::jsonb) where id=${a.run.id}`;
+    await expect(estimateRetry(a.user, a.run.id, {})).rejects.toThrow(
+      "model_configuration_changed",
+    );
+    expect((await sql`select count(*)::int as n from measurement_runs`)[0].n).toBe(1);
+  });
+  test("pending campaigns cannot overlap a retry and known pre-network failures release reserves", async () => {
+    const a = await prepared();
+    const run = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openai"],
+      samples: 1,
+    });
+    await workOnce(async () => {
+      throw new ProviderError("network_or_timeout");
+    });
+    const quote = await estimateRetry(a.user, run.id, {});
+    await expect(
+      createRetry(a.user, run.id, { expectedQuoteHash: quote.quoteHash }),
+    ).rejects.toThrow("campaign_already_running");
+    await sql`delete from credentials where org_id=${a.user.org_id}`;
+    const adapter = vi.fn(async () => fixtureResult);
+    await workOnce(adapter);
+    expect(adapter).not.toHaveBeenCalled();
+    const d = await getRun(a.user, run.id);
+    expect(d.run.pending).toBe(0);
+    const missing = d.responses.filter((r) => r.error_code === "credentials_missing");
+    expect(missing).toHaveLength(9);
+    expect(missing.every((r) => r.cost_micros === 0)).toBe(true);
+    expect(d.responses.find((r) => r.error_code === "network_or_timeout")?.cost_micros).toBeNull();
+  });
+  test("cost summaries distinguish unknown, pending and proven zero; editorial leads use valid evidence only", async () => {
+    const a = await failedCampaign();
+    const failed = a.detail.responses.filter((r) => r.status === "failed");
+    expect(costSummary(failed)).toMatchObject({ total: null, known: 0, unknown: 3, pending: 0 });
+    expect(costSummary([]).total).toBeNull();
+    expect(costSummary([{ ...failed[0], cost_micros: 0 }])).toMatchObject({
+      total: 0,
+      known: 1,
+      unknown: 0,
+    });
+    expect(costSummary([{ ...failed[0], status: "queued" }])).toMatchObject({
+      total: null,
+      unknown: 0,
+      pending: 1,
+    });
+    // Competing brand is in every valid synthetic answer, own brand removed from valid mentions only.
+    const primary = a.detail.run.snapshot.brands.find((b) => b.is_primary)!;
+    a.detail.mentions = a.detail.mentions.filter((m) => m.brand_id !== primary.id);
+    a.detail.mentions.push({
+      response_id: failed[0].id,
+      brand_id: primary.id,
+      brand_name: primary.name,
+      excerpt: "INVALID FIXTURE",
+      matched_alias: primary.name,
+      sentiment: "not_classified",
+    });
+    const leads = editorialOpportunities(a.detail);
+    expect(leads.length).toBeGreaterThan(0);
+    expect(
+      leads.every(
+        (l) =>
+          l.own === 0 &&
+          l.competitorCount === l.valid &&
+          l.evidence.every((r) => r.status === "succeeded"),
+      ),
+    ).toBe(true);
+    const noValid = { ...a.detail, responses: failed };
+    expect(editorialOpportunities(noValid)).toEqual([]);
+  });
+});
 async function completed(user: User, projectId: string, mode: "baseline" | "web" = "baseline") {
   const run = await createRun(user, { projectId, providers: ["openai"], samples: 1, mode });
   while (

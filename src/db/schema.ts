@@ -168,6 +168,27 @@ export const responses = pgTable(
     index("responses_run_idx").on(t.runId, t.orgId),
   ],
 );
+export const responseRetries = pgTable(
+  "response_retries",
+  {
+    orgId: uuid("org_id").notNull(),
+    sourceResponseId: uuid("source_response_id").primaryKey(),
+    retryResponseId: uuid("retry_response_id").notNull().unique(),
+    createdAt: created(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.sourceResponseId, t.orgId],
+      foreignColumns: [responses.id, responses.orgId],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.retryResponseId, t.orgId],
+      foreignColumns: [responses.id, responses.orgId],
+    }).onDelete("cascade"),
+    check("retry_distinct_responses", schemaSql`${t.sourceResponseId} <> ${t.retryResponseId}`),
+    index("retries_org_idx").on(t.orgId),
+  ],
+);
 export const mentions = pgTable(
   "brand_mentions",
   {

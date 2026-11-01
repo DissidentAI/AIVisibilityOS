@@ -18,6 +18,7 @@ export function comparisonSignature(
     !rows.length ||
     rows.some(
       (r) =>
+        !!r.parameters?.retry ||
         r.status !== "succeeded" ||
         !r.returned_model ||
         (r.provider === "openrouter" && !servingProvider(r.parameters)),

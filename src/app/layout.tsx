@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { MotionProvider, AmbientBackground } from "@/components/ui/motion";
 import "@fontsource-variable/manrope";
 import "./globals.css";
+import "./editorial.css";
 export const metadata: Metadata = {
   title: "AI Visibility OS",
   description:

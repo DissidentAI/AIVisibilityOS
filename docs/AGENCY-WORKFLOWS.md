@@ -12,6 +12,16 @@ Dans **Lancer une mesure**, sélectionner les fournisseurs connectés, le nombre
 
 Le mode web utilise les clés habituelles et nécessite l’accès aux outils du fournisseur. Il est plus coûteux. Une recherche demandée peut ne pas être confirmée par les métadonnées : l’écran de preuve le précise. Les citations viennent exclusivement des structures retournées ; aucun crawler du site n’est activé. Voir les conventions conservatrices de coûts dans [METHODOLOGY.md](METHODOLOGY.md).
 
+### Réessayer les échecs et examiner les opportunités
+
+Dans **Historique & exports**, rechercher ou filtrer les réponses, puis utiliser **Réessayer** sur une ligne ou le bouton groupé pour les échecs affichés. Vérifier l’estimation, corriger la cause indiquée (clé, quota ou activation Web Search), puis confirmer. La reprise conserve le mode et le modèle ; changer de mode nécessite une nouvelle campagne normale.
+
+La campagne initiale reste intacte. **Voir la reprise** ouvre sa nouvelle tentative et **Campagne d’origine** permet de revenir. Un seul enfant peut être créé pour chaque réponse ; si cet enfant échoue, il peut à son tour être réessayé. Les réservations des coûts inconnus restent comptées et une reprise peut être facturée à nouveau. Une campagne déjà en cours sur le projet bloque un nouveau lancement. Aucun replay automatique après échec.
+
+Le résumé distingue réponses valides, non exploitables et en attente. Le coût est « — » si rien n’est connu ; un total partiel n’inclut que les coûts connus. Les reprises sont identifiées dans les CSV, PDF et exports personnels et exclues des comparaisons automatiques. Leur source peut avoir été retirée par la politique de conservation ; la configuration de la reprise reste figée.
+
+Dans **Opportunités GEO**, examiner les écarts descriptifs de mentions entre la marque et les concurrents sur chaque question. Les faits proviennent des réponses valides seulement. Les hypothèses n’établissent pas pourquoi cet écart existe ; aucune page n’a été auditée. Ouvrir les preuves avant de suggérer un travail éditorial au client.
+
 ### Programmer les campagnes
 
 Dans **Planification**, choisir la première échéance en heure locale et une cadence de 24 heures ou 7 jours. L’heure est convertie en UTC ; la cadence reste fixe lors du changement d’heure. Le planning capture les questions, marques et paramètres actuels. Le reconfigurer pour appliquer des changements.
@@ -39,6 +49,8 @@ Search adapters are verified against official documentation and synthetic fixtur
 ## API additions
 
 All routes require a session; mutations require the configured Origin. Amounts are integer USD microdollars.
+
+Retries add `POST /api/runs/UUID/retry/estimate` with optional `responseIds` (otherwise all eligible failures), followed by `POST /api/runs/UUID/retry` with those IDs and the returned `expectedQuoteHash`. Launches share the campaign rate limit and budget locks. Repeated or competing launches for the same source response return a conflict without reserving again. Successful responses are rejected. A targeted retry gets its own run ID and immutable source links, never a silent replacement of historical evidence.
 
 | Route                             | Purpose                                                                 |
 | --------------------------------- | ----------------------------------------------------------------------- |

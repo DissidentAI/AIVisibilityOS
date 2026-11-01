@@ -10,11 +10,12 @@ Implémentés : structure Next.js, migrations PostgreSQL/Drizzle, propriétaire 
 - Rapports PDF à la demande en français/anglais, nom/logo validé, comparaison avant/après à configuration et modèles réellement retournés identiques, dossier JSON de preuves et historique de rapports figés. Les téléchargements sont authentifiés.
 - Mode recherche web via les outils officiels OpenAI/Gemini, métadonnées conservées, liens d’attribution et suggestions Google isolées ; aperçu du budget avant lancement ou planification.
 - Restent à valider avec les agences : envoi automatique des rapports, partage temporaire, édition de modèles de rapports et espaces clients collaboratifs.
+- Reprise ciblée des échecs avec conservation des tentatives, estimation supplémentaire et anti-doublon ; historique filtrable et diagnostic des incidents. Opportunités éditoriales descriptives reliées aux preuves, sans crawl. Voir [l’audit et ses priorités](AUDIT-2026-11-01.md).
 
 ### Suites non livrées
 
 - Alertes : événements d’exécution, budget et changements ; seuil minimum d’échantillon, comparaison homogène, intervalle d’incertitude et période anti-duplication. Ne pas appeler « baisse significative » une simple différence.
-- Opportunités GEO : `recommendations` avec faits sourcés, hypothèses et actions séparés. Crawl public autorisé avec protections SSRF avant activation. Aucun accès à une URL arbitraire dans le MVP.
+- Audit GEO des pages et suivi des recommandations : persistance des actions et validation humaine. Crawl public autorisé avec protections SSRF avant activation. Aucun accès à une URL arbitraire dans le MVP ; seules les pistes tirées des mentions collectées sont livrées.
 - Sentiment : classification avec extraits vérifiables, incertitude et corrections humaines ; corpus d’évaluation français/anglais avant score produit.
 - Espaces clients/membres/rôles : matrice de permissions serveur, tests adversariaux, audit indépendant et éventuellement PostgreSQL RLS avant ouverture.
 

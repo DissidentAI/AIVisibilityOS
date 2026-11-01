@@ -186,6 +186,50 @@ export function friendly(code: string, t: Translate) {
       `Unable to verify ${PROVIDER_LABELS[provider]} right now. No scan was started; please try again shortly.`,
     );
   const errors: Record<string, string> = {
+    network_or_timeout: t(
+      "La connexion a échoué ou le fournisseur n’a pas répondu à temps. Le coût peut être inconnu : vérifiez avant de réessayer.",
+      "The connection failed or the provider timed out. Cost may be unknown: review before retrying.",
+    ),
+    retry_nothing_to_retry: t(
+      "Aucun échec à réessayer. Consultez les reprises déjà créées.",
+      "No failures left to retry. View the attempts already created.",
+    ),
+    retry_already_created: t(
+      "Une reprise existe déjà pour cette réponse. Actualisez l’historique pour la consulter.",
+      "A retry already exists for this response. Refresh history to view it.",
+    ),
+    retry_not_failed: t(
+      "Seules les réponses échouées, interrompues ou non exploitables peuvent être réessayées.",
+      "Only failed, interrupted or invalid responses can be retried.",
+    ),
+    credentials_missing: t(
+      "Appel non envoyé : la clé a été retirée. Reconnectez le fournisseur dans Paramètres.",
+      "Request not sent: the key was removed. Reconnect the provider in Settings.",
+    ),
+    provider_http_429: t(
+      "Le fournisseur limite les appels ou le quota est épuisé (429). Vérifiez votre quota et patientez avant de réessayer.",
+      "The provider is rate limiting requests or the quota is exhausted (429). Check your quota and wait before retrying.",
+    ),
+    provider_http_500: t(
+      "Erreur temporaire du fournisseur (500). Réessayez plus tard.",
+      "Temporary provider error (500). Try again later.",
+    ),
+    provider_http_502: t(
+      "Le fournisseur est temporairement indisponible (502). Réessayez plus tard.",
+      "The provider is temporarily unavailable (502). Try again later.",
+    ),
+    provider_http_503: t(
+      "Le fournisseur est temporairement indisponible (503). Réessayez plus tard.",
+      "The provider is temporarily unavailable (503). Try again later.",
+    ),
+    worker_interrupted_no_automatic_retry: t(
+      "L’exécution a été interrompue. L’appel peut déjà avoir été facturé ; vérifiez avant de le réessayer.",
+      "Execution was interrupted. The call may already have been billed; review before retrying.",
+    ),
+    incomplete_or_refused: t(
+      "Réponse incomplète ou refusée par le modèle, exclue des indicateurs. Une nouvelle tentative peut aussi échouer.",
+      "Incomplete response or model refusal, excluded from metrics. A new attempt may also fail.",
+    ),
     mimo_web_search_disabled: t(
       "Xiaomi refuse la recherche web car le plugin Web Search n’est pas activé dans votre console MiMo. Activez-le chez Xiaomi, ou choisissez « API sans recherche web ». Ce refus ne concerne pas votre clé API.",
       "Xiaomi rejected web search because the Web Search plugin is not enabled in your MiMo console. Enable it at Xiaomi or select ‘API without web search’. This rejection is not about your API key.",
@@ -231,8 +275,8 @@ export function friendly(code: string, t: Translate) {
       "The 200-report limit has been reached. Export and remove older reports.",
     ),
     model_configuration_changed: t(
-      "Le catalogue de modèles a changé. Enregistrez à nouveau le planning.",
-      "The model catalog changed. Save the schedule again.",
+      "Cette configuration de modèle n’est plus disponible. Créez une nouvelle campagne avec le catalogue actuel ; pour un planning, enregistrez-le à nouveau.",
+      "This model configuration is no longer available. Create a new campaign with the current catalog; for a schedule, save it again.",
     ),
     model_retired: t(
       "Le modèle configuré a été retiré. Une mise à jour du connecteur est nécessaire.",
