@@ -6,6 +6,8 @@
 
 Les modifications préparent les **prochaines mesures**. Les appels déjà enregistrés, leurs résultats, leurs coûts et leurs paramètres d’origine restent des preuves immuables. Un planning existant conserve son instantané jusqu’à son réenregistrement explicite dans **Planification** ; le formulaire préremplit maintenant ses paramètres existants. Les limites techniques par modèle et fournisseur restent dans **Paramètres → Vitesse des scans**.
 
+Un projet peut comparer **votre marque et 50 concurrents**. Le bouton **Ajouter un concurrent** est disponible dès la création du projet ; les lignes ajoutées sont conservées dans le brouillon. La comparaison comporte une recherche lorsque la liste dépasse dix marques. Les PDF paginent les grandes listes sans retirer de marques. Le nombre d’appels du scan dépend des questions, fournisseurs et échantillons, pas du nombre de concurrents : les mentions sont détectées dans les mêmes réponses. L’audit des sites accepte séparément **dix concurrents par exploration**, avec les mêmes plafonds par site et de 2 000 pages demandées sur 24 heures.
+
 Dans **Requêtes suivies → Ajouter**, coller plusieurs questions, une par ligne, puis enregistrer le lot. Les doublons exacts sont ignorés. Chaque question accepte 5 à 1 000 caractères et le projet reste limité à 50 questions. L’éditeur du projet permet aussi de corriger ou retirer les questions enregistrées.
 
 **Générer avec l’IA** utilise le fournisseur connecté choisi. Le contexte comprend le secteur, la description, le pays, la langue et les questions existantes. Les propositions sont sélectionnables, jamais ajoutées sans action de l’utilisateur. L’ajout d’un concurrent propose automatiquement une liste, même sans texte saisi, puis filtre cette liste pendant la saisie. Les domaines et la pertinence des concurrents sont des **hypothèses non vérifiées** ; un domaine inconnu reste vide. Les noms ne proviennent pas d’une liste de marques liée à Karburo.
@@ -22,6 +24,8 @@ Le PDF présente une synthèse avec ses dénominateurs, une comparaison sur une 
 
 Use **Edit project and scan** to change saved business details, competitors, queries and defaults for future scans. Defaults are stored on the server; temporary dialog choices remain on the device. Existing measurements retain their exact snapshots. Re-save an existing schedule in **Scheduling** to update its future configuration; the form starts with its saved settings.
 
+Compare your brand with **up to 50 competitors**. Add rows during onboarding, retain them in your draft and search large comparison lists. PDFs paginate every brand. Competitors share the same response sample, so adding them does not increase scan API calls for unchanged queries/providers/sampling. **Site audit** separately accepts up to ten competitors per crawl while retaining its page and daily limits. Newly added brands apply to future scans; historical evidence is unchanged.
+
 **Tracked queries → Add** accepts multiple questions, one per line, with exact duplicate removal, 5–1,000 characters per question and a 50-question project limit. **Generate with AI** provides selectable suggestions based on the project description, market and questions. Competitor suggestions load on opening the add form and filter locally as you type. They are unverified proposals, not evidence; unknown domains remain empty.
 
 Generation is queued separately from visibility measurements, with shared encrypted credentials, API budgets, rate limits and accounting. Matching successful results are cached for up to 30 days (subject to shorter installation retention). Each organization can request at most 30 new generations in 24 hours. No automatic retry after failures or interrupted calls.
@@ -33,6 +37,8 @@ Retries stay in one canonical campaign: successful answers survive, latest attem
 ## 简体中文
 
 使用**编辑项目与扫描**修改品牌、域名、业务描述、目标国家、回答语言、竞争对手、问题及后续扫描设置。设置保存在服务器，可跨设备使用；临时选择保存在当前设备。历史回答及其参数保持不变。如需更改现有定时计划，请在**定时计划**中重新保存。
+
+每个项目可比较您的品牌和**最多 50 个竞争对手**。创建项目时即可添加更多行，草稿会保留这些内容。较长的比较列表支持搜索，PDF 会完整分页。竞争对手使用相同的回答样本，问题、供应商和抽样次数不变时，不会因此增加扫描 API 调用。网站审计每次可另选最多十个竞争对手，仍遵守每站及每日页面上限。新品牌从后续扫描起参与比较，历史证据保持不变。
 
 在**跟踪问题 → 添加**中，每行输入一个问题，即可批量添加。系统忽略完全重复的问题，每个项目最多 50 个问题，每题 5–1,000 个字符。**使用 AI 生成**根据业务描述、市场和已有问题提供建议，需用户选择后才会添加。添加竞争对手时，即使未输入文字也会加载建议；输入时只在本地筛选，不会每敲一个字就调用 API。竞争对手及域名均为待验证假设，未知域名保持为空。
 

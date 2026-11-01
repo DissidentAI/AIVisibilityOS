@@ -5,6 +5,7 @@ import { projectSchema, ProjectValidationError } from "./project-validation";
 import { campaignPreferenceSchema } from "./browser-storage";
 import { AppError } from "./errors";
 import { ownedProject, uuidSchema } from "./service";
+import { MAX_COMPETITORS } from "./project-limits";
 
 /** Mutable configuration for future calls. Historical snapshots are never rewritten. */
 export async function updateProject(user: User, id: string, data: unknown) {
@@ -15,7 +16,7 @@ export async function updateProject(user: User, id: string, data: unknown) {
   const extra = z
     .object({
       revision: z.number().int().positive(),
-      competitorIds: z.array(z.uuid().nullable()).max(10),
+      competitorIds: z.array(z.uuid().nullable()).max(MAX_COMPETITORS),
       scanSettings: campaignPreferenceSchema,
     })
     .parse(data);

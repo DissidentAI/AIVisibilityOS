@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import { renderReport } from "../src/lib/report-pdf";
-import { reportFixture } from "./fixtures/report";
+import { reportFixture, manyBrandsReportFixture } from "./fixtures/report";
 for (const locale of ["fr", "en", "zh-CN"] as const)
   test(`PDF ${locale}: embedded Unicode font, selectable text, bounded pagination`, async () => {
     const bytes = await renderReport(reportFixture(locale), "synthetic-report");
@@ -18,4 +18,11 @@ test("long Chinese evidence and questions paginate without infinite overflow", a
   const pages = (b.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length;
   expect(pages).toBeGreaterThan(20);
   expect(pages).toBeLessThan(110);
+}, 20000);
+test("fifty competitors with long Chinese names paginate every question instead of clipping", async () => {
+  const bytes = await renderReport(manyBrandsReportFixture(), "synthetic-many-brands");
+  const pages = (bytes.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length;
+  expect(pages).toBeGreaterThan(20);
+  expect(pages).toBeLessThan(65);
+  expect(bytes.length).toBeLessThan(500000);
 }, 20000);

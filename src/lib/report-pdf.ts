@@ -293,15 +293,36 @@ export async function renderReport(payload: ReportPayload, reportId: string): Pr
       ).size;
       return `${b.name} : ${n}/${rows.length}`;
     });
-    const qh = height(q.text, 11, width - 32, true),
-      body = labels.join("   ·   "),
-      bh = height(body, 9, width - 32);
-    ensure(qh + bh + 65);
-    doc.roundedRect(margin, y, width, qh + bh + 48, 9).fill(colors.pale);
-    put(String(index + 1).padStart(2, "0"), margin + 16, y + 10, 8, colors.muted, 30);
-    put(q.text, margin + 16, y + 26, 11, colors.ink, width - 32, true);
-    put(body, margin + 16, y + qh + 34, 9, colors.body, width - 32);
-    y += qh + bh + 62;
+    // Split large competitor lists into measured blocks. Repeat the question
+    // on continuation pages so every ratio keeps its context, without truncation.
+    const qh = height(q.text, 11, width - 32, true);
+    const chunks: string[] = [];
+    let pending: string[] = [];
+    for (const label of labels) {
+      const candidate = [...pending, label].join("   ·   ");
+      if (pending.length && qh + height(candidate, 9, width - 32) + 65 > bottom - 82) {
+        chunks.push(pending.join("   ·   "));
+        pending = [];
+      }
+      pending.push(label);
+    }
+    if (pending.length) chunks.push(pending.join("   ·   "));
+    for (const [part, body] of chunks.entries()) {
+      const bh = height(body, 9, width - 32);
+      ensure(qh + bh + 65);
+      doc.roundedRect(margin, y, width, qh + bh + 48, 9).fill(colors.pale);
+      put(
+        `${String(index + 1).padStart(2, "0")}${part ? " · " + t("suite", "continued", "续") : ""}`,
+        margin + 16,
+        y + 10,
+        8,
+        colors.muted,
+        width - 32,
+      );
+      put(q.text, margin + 16, y + 26, 11, colors.ink, width - 32, true);
+      put(body, margin + 16, y + qh + 34, 9, colors.body, width - 32);
+      y += qh + bh + 62;
+    }
   }
   heading(
     "04",

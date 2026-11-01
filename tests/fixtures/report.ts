@@ -103,3 +103,17 @@ export function reportFixture(locale: ReportPayload["locale"], long = false): Re
     previous: null,
   };
 }
+
+export function manyBrandsReportFixture(): ReportPayload {
+  const payload = reportFixture("zh-CN");
+  payload.current.run.snapshot.brands = [
+    payload.current.run.snapshot.brands[0],
+    ...Array.from({ length: 50 }, (_, i) => ({
+      id: `many-brand-${i}`,
+      name: `品牌${String(i + 1).padStart(2, "0")}：${"这是用于测试长名称分页的虚构公司".repeat(5)}`,
+      domain: `brand${i}.example`,
+      is_primary: false,
+    })),
+  ];
+  return payload;
+}

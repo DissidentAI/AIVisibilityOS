@@ -16,6 +16,7 @@ import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
 import { isProjectIssue, type ProjectIssue } from "@/lib/project-validation";
 import { PROVIDERS, PROVIDER_LABELS } from "@/lib/provider-config";
+import { MAX_COMPETITORS } from "@/lib/project-limits";
 export type Translate = (fr: string, en: string, zh?: string) => string;
 export const ModalError = createContext("");
 export class ApiError extends Error {
@@ -230,9 +231,9 @@ export function friendly(code: string, t: Translate) {
       "每个项目最多跟踪 50 个问题。",
     ),
     brand_limit: t(
-      "Un projet peut suivre 10 concurrents maximum.",
-      "A project can track up to 10 competitors.",
-      "每个项目最多跟踪 10 个竞争对手。",
+      `Un projet peut suivre ${MAX_COMPETITORS} concurrents maximum.`,
+      `A project can track up to ${MAX_COMPETITORS} competitors.`,
+      `每个项目最多跟踪 ${MAX_COMPETITORS} 个竞争对手。`,
     ),
     retry_attempt_limit: t(
       "Cette question a atteint vingt tentatives. Vérifiez la connexion et les réglages avant de préparer une nouvelle campagne.",

@@ -36,6 +36,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { BrandMark } from "./ui/brand-mark";
+import { MAX_COMPETITORS } from "@/lib/project-limits";
 import { Button } from "./ui/button";
 import { motion } from "motion/react";
 import { PageTransition, useMotionPreferences } from "./ui/motion";
@@ -1125,9 +1126,21 @@ export function Workspace() {
                         <div className="card-heading">
                           <div>
                             <h2>{t("Marques suivies", "Tracked brands")}</h2>
-                            <p>{t("Noms explicites et domaines", "Explicit names and domains")}</p>
+                            <p>
+                              {project.brands.filter((b) => !b.is_primary).length}/{MAX_COMPETITORS}{" "}
+                              {t("concurrents", "competitors", "个竞争对手")} ·{" "}
+                              {t("Noms explicites et domaines", "Explicit names and domains")}
+                            </p>
                           </div>
-                          <Button size="sm" variant="outline" onClick={() => setModal("brand")}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              busy ||
+                              project.brands.filter((b) => !b.is_primary).length >= MAX_COMPETITORS
+                            }
+                            onClick={() => setModal("brand")}
+                          >
                             <Plus size={14} />
                             {t("Ajouter", "Add")}
                           </Button>
@@ -1154,6 +1167,13 @@ export function Workspace() {
                             )}
                           </div>
                         ))}
+                        <p className="small muted competitor-scope-note">
+                          {t(
+                            "Les nouvelles marques seront comparées à partir du prochain scan. La campagne affichée conserve les marques suivies lors de sa création.",
+                            "New brands are compared from the next scan. The displayed campaign keeps the brands tracked when it was created.",
+                            "新品牌将从下次扫描开始参与比较。当前活动保留创建时跟踪的品牌。",
+                          )}
+                        </p>
                       </section>
                       <section className="card">
                         <div className="card-heading">

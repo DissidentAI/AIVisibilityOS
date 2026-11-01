@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { MAX_COMPETITORS, MAX_BROWSER_DRAFT_CHARS } from "../src/lib/project-limits";
 import {
   accountStorageKey,
   BROWSER_RETENTION_MS,
@@ -22,6 +23,29 @@ function memoryStore() {
   };
 }
 describe("account-scoped browser drafts", () => {
+  test("legacy two-row drafts and fifty competitors survive browser storage", () => {
+    const store = memoryStore();
+    expect(projectDraftSchema.parse(emptyProjectDraft()).competitors).toHaveLength(2);
+    const draft = {
+      ...emptyProjectDraft(),
+      questions: "q".repeat(50000),
+      competitors: Array.from({ length: MAX_COMPETITORS }, (_, i) => ({
+        name: `Brand ${i}`,
+        domain: "https://example.com/" + "a".repeat(2000),
+      })),
+    };
+    expect(saveBrowserValue("many", draft, projectDraftSchema, store, 100)).toBe(true);
+    expect(
+      readBrowserValue("many", projectDraftSchema, store, 101).value?.competitors,
+    ).toHaveLength(50);
+    expect(
+      projectDraftSchema.safeParse({
+        ...draft,
+        competitors: [...draft.competitors, draft.competitors[0]],
+      }).success,
+    ).toBe(false);
+    expect(projectDraftSchema.parse({ ...draft, competitors: [] }).competitors).toEqual([]);
+  });
   test("round-trips unfinished entries and strips unexpected secret fields", () => {
     const store = memoryStore();
     const draft = {
@@ -71,7 +95,7 @@ describe("account-scoped browser drafts", () => {
     expect(store.data.size).toBe(0);
     for (const raw of [
       "{invalid",
-      "x".repeat(100001),
+      "x".repeat(MAX_BROWSER_DRAFT_CHARS + 1),
       JSON.stringify({ version: 9, savedAt: 100, value: emptyProjectDraft() }),
     ]) {
       store.setItem("draft", raw);

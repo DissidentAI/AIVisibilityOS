@@ -4,6 +4,7 @@ import { z } from "zod";
 import { sql } from "@/db/client";
 import { AppError } from "@/lib/errors";
 import { ProjectValidationError } from "@/lib/project-validation";
+import { MAX_BRANDS, PROJECT_BODY_LIMIT_BYTES } from "@/lib/project-limits";
 import { authenticate, rateLimit, requireUser, sessionCookie, sessionToken } from "@/lib/auth";
 import { assertOrigin, digest, verifyPassword, decryptSecret } from "@/lib/security";
 import { credentialCheckSchema, verifyProviderCredential } from "@/lib/provider-auth";
@@ -149,13 +150,18 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       return json({ ok: true });
     }
     if (route === "suggestions" && method === "POST")
-      return json(await requestSuggestions(user, await body(request)), 202);
+      return json(
+        await requestSuggestions(user, await body(request, PROJECT_BODY_LIMIT_BYTES)),
+        202,
+      );
     if (path[0] === "suggestions" && path.length === 2 && method === "GET")
       return json(await getSuggestions(user, path[1]));
     if (route === "projects" && method === "POST")
-      return json(await createProject(user, await body(request)), 201);
+      return json(await createProject(user, await body(request, PROJECT_BODY_LIMIT_BYTES)), 201);
     if (path[0] === "projects" && path[1] && path.length === 2 && method === "POST")
-      return json(await updateProject(user, path[1], await body(request)));
+      return json(
+        await updateProject(user, path[1], await body(request, PROJECT_BODY_LIMIT_BYTES)),
+      );
     if (
       path[0] === "projects" &&
       path[1] &&
@@ -171,7 +177,10 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       method === "POST" &&
       path[2] === "queries"
     )
-      return json(await addQuestions(user, path[1], await body(request)), 201);
+      return json(
+        await addQuestions(user, path[1], await body(request, PROJECT_BODY_LIMIT_BYTES)),
+        201,
+      );
     if (path[0] === "projects" && path[1] && path.length === 2 && method === "DELETE") {
       await ownedProject(user, path[1]);
       await sql.begin(async (tx) => {
@@ -203,11 +212,13 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       const data = await body(request);
       await sql.begin(async (tx) => {
         await tx`select pg_advisory_xact_lock(824762)`;
-        await tx`select id from projects where id=${path[1]} and org_id=${user.org_id} for update`;
+        const [project] =
+          await tx`select id from projects where id=${path[1]} and org_id=${user.org_id} for update`;
+        if (!project) throw new AppError("not_found", 404);
         const p = brandSchema.parse(data);
         const [count] =
           await tx`select count(*)::int as n from brands where project_id=${path[1]} and org_id=${user.org_id}`;
-        if (count.n >= 11) throw new AppError("brand_limit");
+        if (count.n >= MAX_BRANDS) throw new AppError("brand_limit");
         const [duplicate] =
           await tx`select id from brands where project_id=${path[1]} and org_id=${user.org_id} and lower(name)=lower(${p.name})`;
         if (duplicate) throw new AppError("duplicate_brand");

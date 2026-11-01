@@ -5,6 +5,7 @@ import {
   projectIssues,
   projectIssueMessage,
 } from "../src/lib/project-validation";
+import { MAX_COMPETITORS } from "../src/lib/project-limits";
 
 const input = {
   name: "Karburo",
@@ -109,6 +110,11 @@ describe("project creation validation", () => {
   });
 
   test("keeps the server limits for question lengths and number of competitors", () => {
+    const competitors = Array.from({ length: MAX_COMPETITORS }, (_, index) => ({
+      name: `Concurrent ${index}`,
+      domain: `brand${index}.example`,
+    }));
+    expect(projectSchema.parse({ ...input, competitors }).competitors).toHaveLength(50);
     expect(projectSchema.safeParse({ ...input, queries: [] }).success).toBe(false);
     expect(projectSchema.safeParse({ ...input, queries: ["a".repeat(1001)] }).success).toBe(false);
     expect(
@@ -120,7 +126,7 @@ describe("project creation validation", () => {
     expect(
       projectSchema.safeParse({
         ...input,
-        competitors: Array.from({ length: 11 }, (_, index) => ({
+        competitors: Array.from({ length: MAX_COMPETITORS + 1 }, (_, index) => ({
           name: `Concurrent ${index}`,
           domain: `brand${index}.example`,
         })),

@@ -1,7 +1,14 @@
 import { beforeAll, beforeEach, afterAll, test, expect } from "vitest";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql, db } from "../src/db/client";
-import { createProject, createRun, getRun, getState, saveCredential } from "../src/lib/service";
+import {
+  createProject,
+  createRun,
+  estimateRun,
+  getRun,
+  getState,
+  saveCredential,
+} from "../src/lib/service";
 import { addQuestions, updateProject, saveScanSettings } from "../src/lib/project-settings";
 import { requestSuggestions, getSuggestions } from "../src/lib/suggestions";
 import { claimJob, settleJob, workOnce, maintenance } from "../src/lib/queue";
@@ -9,7 +16,8 @@ import { saveSchedule, dispatchSchedule, listSchedules } from "../src/lib/schedu
 import type { User } from "../src/lib/types";
 import { digest } from "../src/lib/security";
 import { POST, GET } from "../src/app/api/[[...path]]/route";
-import { parseSuggestions } from "../src/lib/suggestion-validation";
+import { parseSuggestions, suggestionContextSchema } from "../src/lib/suggestion-validation";
+import { MAX_COMPETITORS, PROJECT_BODY_LIMIT_BYTES } from "../src/lib/project-limits";
 const base = {
   name: "Atelier Test",
   domain: "atelier.example",
@@ -93,6 +101,113 @@ async function editData(user: User) {
 function suggestionInput(projectId: string) {
   return { projectId, provider: "openai", context: { ...base, questions: base.queries } };
 }
+test("fifty competitors use one shared sample and larger settings never rewrite historical evidence", async () => {
+  const a = await setup();
+  const before = await estimateRun(a.user, { projectId: a.id, ...settings });
+  const competitors = Array.from({ length: MAX_COMPETITORS }, (_, i) => ({
+    name: `Concurrent ${i + 1}`,
+    domain: `brand${i + 1}.example`,
+  }));
+  await updateProject(a.user, a.id, {
+    ...(await editData(a.user)),
+    competitors,
+    competitorIds: competitors.map(() => null),
+  });
+  const p = (await getState(a.user)).projects[0];
+  expect(p.brands).toHaveLength(51);
+  expect(
+    suggestionContextSchema.parse({ ...base, competitors, questions: base.queries }).competitors,
+  ).toHaveLength(50);
+  const after = await estimateRun(a.user, { projectId: a.id, ...settings });
+  expect(after.responses).toBe(before.responses);
+  expect(after.reservedMicros).toBe(before.reservedMicros);
+  const run = await createRun(a.user, { projectId: a.id, ...settings });
+  await workOnce(
+    async () => ({ ...result, text: "SYNTHETIC TEST: Atelier Test and Concurrent 50." }),
+    { unregulatedTestOnly: true },
+  );
+  const detail = await getRun(a.user, run.id);
+  expect(detail.responses).toHaveLength(1);
+  expect(detail.run.valid).toBe(1);
+  expect(detail.mentions.map((m) => m.brand_name).sort()).toEqual([
+    "Atelier Test",
+    "Concurrent 50",
+  ]);
+  const addition = await req("POST", `projects/${a.id}/brands`, "a", {
+    name: "Over limit",
+    domain: "extra.example",
+  });
+  expect(addition.status).toBe(400);
+  expect(await addition.json()).toEqual({ error: "brand_limit" });
+  const current = (await getState(a.user)).projects[0];
+  const ids = competitors.map((c) => current.brands.find((b) => b.name === c.name)!.id);
+  await updateProject(a.user, a.id, {
+    ...base,
+    competitors: competitors.map((c, i) =>
+      i === 49 ? { ...c, name: "Changed last competitor" } : c,
+    ),
+    competitorIds: ids,
+    scanSettings: settings,
+    revision: current.revision,
+  });
+  expect((await getRun(a.user, run.id)).run.snapshot).toEqual(detail.run.snapshot);
+});
+test("concurrent additions respect the fifty-competitor cap and stay tenant isolated", async () => {
+  const a = await setup();
+  const competitors = Array.from({ length: MAX_COMPETITORS - 1 }, (_, i) => ({
+    name: `Brand ${i}`,
+    domain: `brand${i}.example`,
+  }));
+  await updateProject(a.user, a.id, {
+    ...(await editData(a.user)),
+    competitors,
+    competitorIds: competitors.map(() => null),
+  });
+  await owner("b");
+  expect(
+    (
+      await req("POST", `projects/${a.id}/brands`, "b", {
+        name: "Foreign",
+        domain: "foreign.example",
+      })
+    ).status,
+  ).toBe(404);
+  const added = await Promise.all(
+    ["One", "Two"].map((name) =>
+      req("POST", `projects/${a.id}/brands`, "a", {
+        name,
+        domain: `${name.toLowerCase()}.example`,
+      }),
+    ),
+  );
+  expect(added.map((r) => r.status).sort()).toEqual([201, 400]);
+  expect((await getState(a.user)).projects[0].brands).toHaveLength(51);
+});
+test("large Unicode projects fit the bounded request envelope with fifty competitors", async () => {
+  await owner();
+  const data = {
+    ...base,
+    competitors: Array.from({ length: MAX_COMPETITORS }, (_, i) => ({
+      name: `品牌${i}`,
+      domain: `brand${i}.example`,
+    })),
+    queries: Array.from({ length: 50 }, (_, i) => `${i} ${"测".repeat(990)}`),
+  };
+  expect(Buffer.byteLength(JSON.stringify(data))).toBeGreaterThan(100000);
+  const response = await req("POST", "projects", "a", data);
+  expect(response.status).toBe(201);
+  expect(
+    (await getState((await sql<User[]>`select id,org_id,email from users`)[0])).projects[0].brands,
+  ).toHaveLength(51);
+  expect(
+    (
+      await req("POST", "projects", "a", {
+        ...base,
+        description: "x".repeat(PROJECT_BODY_LIMIT_BYTES),
+      })
+    ).status,
+  ).toBe(413);
+});
 test("bulk questions are atomic, deduplicated, bounded and tenant protected", async () => {
   const a = await setup(),
     b = await owner("b");

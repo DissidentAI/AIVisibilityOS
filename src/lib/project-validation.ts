@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { safePublicUrl } from "./public-url";
 import { AppError } from "./errors";
+import { MAX_COMPETITORS } from "./project-limits";
 
 /** Accept a pasted website address, but store only its validated hostname. Never fetch it. */
 export function normalizeWebsiteDomain(value: string): string | null {
@@ -34,7 +35,7 @@ const domain = z.string().transform((value, ctx) => {
   return z.NEVER;
 });
 export const brandSchema = z.object({ name: brandName, domain });
-const competitors = z.array(brandSchema).max(10, "competitors_count").default([]);
+const competitors = z.array(brandSchema).max(MAX_COMPETITORS, "competitors_count").default([]);
 export const projectDetailsSchema = z.object({
   name: brandName,
   domain,
@@ -129,7 +130,10 @@ export class ProjectValidationError extends AppError {
 export function projectIssueStep(issue: ProjectIssue) {
   return issue.field.startsWith("competitors") ? 2 : issue.field.startsWith("queries") ? 3 : 1;
 }
-export function projectIssueMessage(issue: ProjectIssue, t: (fr: string, en: string) => string) {
+export function projectIssueMessage(
+  issue: ProjectIssue,
+  t: (fr: string, en: string, zh?: string) => string,
+) {
   const messages: Record<ProjectIssue["code"], string> = {
     brand_name: t(
       "Le nom doit contenir de 2 à 100 caractères.",
@@ -151,7 +155,11 @@ export function projectIssueMessage(issue: ProjectIssue, t: (fr: string, en: str
       "Utilisez un code pays de deux lettres, par exemple FR.",
       "Use a two-letter country code, such as FR.",
     ),
-    competitors_count: t("Ajoutez au maximum 10 concurrents.", "Add up to 10 competitors."),
+    competitors_count: t(
+      `Ajoutez au maximum ${MAX_COMPETITORS} concurrents.`,
+      `Add up to ${MAX_COMPETITORS} competitors.`,
+      `最多添加 ${MAX_COMPETITORS} 个竞争对手。`,
+    ),
     query_length: t(
       "La question doit contenir de 5 à 1 000 caractères.",
       "The question must contain between 5 and 1,000 characters.",

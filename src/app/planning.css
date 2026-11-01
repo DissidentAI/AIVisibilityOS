@@ -70,6 +70,30 @@
   padding: 20px 0;
   border-bottom: 1px solid var(--border);
 }
+.competitor-heading {
+  margin-bottom: 14px;
+}
+.comparison-list-scroll {
+  max-height: 640px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.comparison-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.comparison-row span:last-child {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.brand-line .grow {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.competitor-scope-note {
+  padding: 0 24px 20px;
+}
 .project-editor-section h3 {
   margin: 0 0 18px;
 }

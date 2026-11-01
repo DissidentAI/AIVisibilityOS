@@ -278,3 +278,46 @@ test("daily requested-page quota is atomic and survives deletion of audit histor
     await sql`select count from rate_limits where key=${"audit-pages:" + a.user.org_id}`;
   expect(quota.count).toBe(2000);
 });
+test("ten competitors can share one audit while the 2000-page quota and selection cap still apply", async () => {
+  const a = await owner();
+  const project = await createProject(a.user, {
+    name: "Large audit",
+    domain: "large.example",
+    industry: "Software",
+    country: "FR",
+    language: "fr",
+    competitors: Array.from({ length: 11 }, (_, i) => ({
+      name: `Competitor ${i}`,
+      domain: `competitor${i}.example`,
+    })),
+    queries: ["Which business software should we compare?"],
+  });
+  const brands = (await getState(a.user)).projects
+    .find((p) => p.id === project.id)!
+    .brands.filter((b) => !b.is_primary);
+  await expect(
+    createAudit(a.user, {
+      projectId: project.id,
+      competitorIds: brands.map((b) => b.id),
+      maxPages: 100,
+    }),
+  ).rejects.toThrow();
+  const audit = await createAudit(a.user, {
+    projectId: project.id,
+    competitorIds: brands.slice(0, 10).map((b) => b.id),
+    maxPages: 100,
+  });
+  expect((await getAudit(a.user, audit.id)).sites).toHaveLength(11);
+  const [quota] =
+    await sql`select count from rate_limits where key=${"audit-pages:" + a.user.org_id}`;
+  expect(quota.count).toBe(1100);
+  await cancelAudit(a.user, audit.id);
+  await expect(
+    createAudit(a.user, {
+      projectId: project.id,
+      competitorIds: brands.slice(0, 10).map((b) => b.id),
+      maxPages: 100,
+    }),
+  ).rejects.toThrow("audit_daily_limit");
+  expect(await listAudits(a.user, project.id)).toHaveLength(1);
+});

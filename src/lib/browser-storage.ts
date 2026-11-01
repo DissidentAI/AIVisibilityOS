@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PROVIDERS, OPENROUTER_MODEL_IDS } from "./provider-config";
+import { MAX_COMPETITORS, MAX_BROWSER_DRAFT_CHARS } from "./project-limits";
 export const BROWSER_RETENTION_MS = 30 * 86400_000;
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 function browserStore(): Store | undefined {
@@ -35,7 +36,7 @@ export function readBrowserValue<T>(
   try {
     const raw = storage.getItem(key);
     if (!raw) return { value: null, available: true };
-    if (raw.length > 100_000) throw new Error("oversized_draft");
+    if (raw.length > MAX_BROWSER_DRAFT_CHARS) throw new Error("oversized_draft");
     const envelope = z
       .object({ version: z.literal(1), savedAt: z.number().finite(), value: schema })
       .parse(JSON.parse(raw));
@@ -72,7 +73,7 @@ export const projectDraftSchema = z.object({
   description: z.string().max(2000).default(""),
   country: z.string().max(2),
   language: z.enum(["fr", "en", "zh-CN"]),
-  competitors: z.array(draftBrand).length(2),
+  competitors: z.array(draftBrand).max(MAX_COMPETITORS),
   questions: z.string().max(50000),
 });
 export type ProjectDraft = z.infer<typeof projectDraftSchema>;

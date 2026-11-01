@@ -17,13 +17,13 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 ## Ce qui fonctionne
 
 - Compte propriétaire, sessions sécurisées et onboarding français/anglais/chinois simplifié.
-- Plusieurs projets, marque principale, jusqu’à dix concurrents et cinquante questions par projet.
+- Plusieurs projets, marque principale, jusqu’à cinquante concurrents et cinquante questions par projet.
 - Connecteurs OpenAI, Google Gemini, Kimi, OpenRouter et **Xiaomi MiMo en direct avec votre clé Xiaomi**, clés chiffrées côté serveur. [Profils, coûts et limites](docs/PROVIDERS.md).
 - Brouillon de projet, dernier projet sélectionné et choix de campagne mémorisés dans le navigateur, séparément pour chaque compte. Aucune clé API dans le stockage local.
 - Campagnes à 1–5 échantillons par question/fournisseur, file PostgreSQL persistante et worker parallèle avec plafonds par fournisseur/modèle, marge de sécurité et pauses sur 429. [Réglages de vitesse](docs/EXECUTION.md).
 - Réponses intégrales mises en forme en Markdown, copie et exports texte/Markdown, mentions explicites, comparaisons, historique, incertitude statistique et CSV. [Lecture et exports](docs/ANSWER-EXPORTS.md).
 - Reprise individuelle ou groupée des échecs avec aperçu budgétaire, protection contre les doublons et conservation des tentatives initiales. Recherche et filtres dans le journal, suivi des campagnes partielles et coûts inconnus explicites.
-- Audit technique des pages publiques et comparaison de trois concurrents : crawl persistant avec robots.txt, protection SSRF, preuves consultables, exports CSV/JSON et synthèse IA facultative avec coût confirmé. [Méthode et limites](docs/SITE-AUDIT.md).
+- Audit technique des pages publiques et comparaison de dix concurrents : crawl persistant avec robots.txt, protection SSRF, preuves consultables, exports CSV/JSON et synthèse IA facultative avec coût confirmé. [Méthode et limites](docs/SITE-AUDIT.md).
 - Opportunités éditoriales descriptives : écarts de mentions par question, faits/hypothèses/actions séparés, réponses justificatives consultables. Aucun audit de site ou lien de causalité inventé.
 - Budgets mensuels avec réservation atomique, aperçu du coût avant lancement et coûts inconnus conservés comme engagements prudents.
 - Campagnes planifiées toutes les 24 heures ou tous les 7 jours, pause/reprise et journal des échéances.

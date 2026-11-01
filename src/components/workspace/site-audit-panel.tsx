@@ -16,7 +16,7 @@ import { AnswerContent } from "./answer-content";
 import { auditLabel } from "./audit-labels";
 import type { Project, State } from "@/lib/types";
 import type { AuditDetail, AuditEstimate, listAudits } from "@/lib/site-audit/service";
-import type { AuditPage } from "@/lib/site-audit/types";
+import { AUDIT_LIMITS, type AuditPage } from "@/lib/site-audit/types";
 import {
   OPENROUTER_MODEL_IDS,
   PROVIDER_LABELS,
@@ -150,7 +150,11 @@ export function SiteAuditPanel({
           </Field>
           <fieldset className="audit-targets">
             <legend>
-              {t("Concurrents à comparer (3 maximum)", "Competitors to compare (up to 3)")}
+              {t(
+                `Concurrents à comparer (${AUDIT_LIMITS.maxSites - 1} maximum)`,
+                `Competitors to compare (up to ${AUDIT_LIMITS.maxSites - 1})`,
+                `比较竞争对手（最多 ${AUDIT_LIMITS.maxSites - 1} 个）`,
+              )}
             </legend>
             {!project.brands.some((b) => !b.is_primary) && (
               <p className="small muted">
@@ -167,7 +171,11 @@ export function SiteAuditPanel({
                   <input
                     type="checkbox"
                     checked={competitors.includes(b.id)}
-                    disabled={busy || (!competitors.includes(b.id) && competitors.length >= 3)}
+                    disabled={
+                      busy ||
+                      (!competitors.includes(b.id) &&
+                        competitors.length >= AUDIT_LIMITS.maxSites - 1)
+                    }
                     onChange={(e) =>
                       setCompetitors((ids) =>
                         e.target.checked ? [...ids, b.id] : ids.filter((id) => id !== b.id),

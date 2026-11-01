@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, type FormEvent, type SetStateAction } from "react";
 import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
-import { ArrowRight, Sparkles, Save, Trash2 } from "lucide-react";
+import { ArrowRight, Sparkles, Save, Trash2, Plus } from "lucide-react";
 import { Button } from "../ui/button";
 import { ApiError, Field, Modal, friendly, type Translate } from "./shared";
 import {
@@ -19,6 +19,7 @@ import { AISuggestions } from "./ai-suggestions";
 import type { Provider } from "@/lib/provider-config";
 import { useProjectDraft } from "./use-project-draft";
 import { hasProjectDraft, type ProjectDraft } from "@/lib/browser-storage";
+import { MAX_COMPETITORS } from "@/lib/project-limits";
 export function ProjectWizard({
   t,
   storageKey,
@@ -371,15 +372,38 @@ export function ProjectWizard({
             <>
               <p className="muted">
                 {t(
-                  "Ajoutez jusqu’à deux concurrents ici. Vous pourrez en ajouter d’autres ensuite. Les champs vides sont ignorés.",
-                  "Add up to two competitors here. You can add more later. Empty rows are ignored.",
+                  `Ajoutez jusqu’à ${MAX_COMPETITORS} concurrents. Les lignes entièrement vides sont ignorées.`,
+                  `Add up to ${MAX_COMPETITORS} competitors. Completely empty rows are ignored.`,
+                  `最多添加 ${MAX_COMPETITORS} 个竞争对手。完全空白的行将被忽略。`,
                 )}
+              </p>
+              <p className="small muted" role="status">
+                {competitors.filter((c) => c.name.trim() || c.domain.trim()).length}/
+                {MAX_COMPETITORS} {t("concurrents", "competitors", "个竞争对手")}
               </p>
               {competitors.map((c, i) => (
                 <div className="competitor-form" key={i}>
-                  <span className="section-kicker">
-                    {t("CONCURRENT", "COMPETITOR")} 0{i + 1}
-                  </span>
+                  <div className="inline between competitor-heading">
+                    <span className="section-kicker">
+                      {t("CONCURRENT", "COMPETITOR")} {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={busy}
+                      aria-label={`${t("Retirer le concurrent", "Remove competitor")} ${i + 1}`}
+                      onClick={() => {
+                        clearErrors();
+                        setCompetitors((rows) => rows.filter((_, j) => j !== i));
+                        setFocusedCompetitor((current) =>
+                          current > i ? current - 1 : current === i ? -1 : current,
+                        );
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
                   <Field label={t("Nom", "Name")} error={fieldError(`competitors.${i}.name`)}>
                     <input
                       data-project-field={`competitors.${i}.name`}
@@ -429,6 +453,19 @@ export function ProjectWizard({
                   </Field>
                 </div>
               ))}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || competitors.length >= MAX_COMPETITORS}
+                onClick={() => {
+                  clearErrors();
+                  setCompetitors((rows) => [...rows, { name: "", domain: "" }]);
+                  setFocusedCompetitor(competitors.length);
+                }}
+              >
+                <Plus size={14} />
+                {t("Ajouter un concurrent", "Add a competitor")}
+              </Button>
             </>
           )}
           {step === 3 && (
@@ -481,14 +518,19 @@ export function ProjectWizard({
               t={t}
               kind={step === 2 ? "competitors" : "questions"}
               automatic={step === 2}
-              filter={step === 2 ? competitors[focusedCompetitor].name : ""}
+              filter={step === 2 ? (competitors[focusedCompetitor]?.name ?? "") : ""}
               onQuestion={(q) => setQuestions([...new Set([...qs, q])].join("\n"))}
               onCompetitor={(c) =>
                 setCompetitors((rows) => {
-                  const i = focusedCompetitor;
+                  const i = rows[focusedCompetitor]
+                    ? focusedCompetitor
+                    : rows.findIndex((r) => !r.name && !r.domain);
+                  const next = { name: c.name, domain: c.domain ?? "" };
                   return i < 0
-                    ? rows
-                    : rows.map((r, j) => (j === i ? { name: c.name, domain: c.domain ?? "" } : r));
+                    ? rows.length < MAX_COMPETITORS
+                      ? [...rows, next]
+                      : rows
+                    : rows.map((r, j) => (j === i ? next : r));
                 })
               }
             />

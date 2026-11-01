@@ -13,6 +13,7 @@ import {
 } from "@/lib/provider-config";
 import { projectSchema, projectIssues, projectIssueMessage } from "@/lib/project-validation";
 import { AISuggestions, projectContext } from "./ai-suggestions";
+import { MAX_COMPETITORS } from "@/lib/project-limits";
 export function ProjectEditor({
   project,
   state,
@@ -167,6 +168,9 @@ export function ProjectEditor({
           </section>
           <section className="project-editor-section">
             <h3>{t("Concurrents", "Competitors")}</h3>
+            <p className="small muted">
+              {competitors.length}/{MAX_COMPETITORS} {t("concurrents", "competitors", "个竞争对手")}
+            </p>
             {competitors.map((c, i) => (
               <div className="project-editor-row" key={c.id ?? `new-${i}`}>
                 <input
@@ -205,7 +209,7 @@ export function ProjectEditor({
             <Button
               type="button"
               variant="outline"
-              disabled={competitors.length >= 10}
+              disabled={competitors.length >= MAX_COMPETITORS}
               onClick={() => setCompetitors((cs) => [...cs, { id: null, name: "", domain: "" }])}
             >
               <Plus size={14} />
@@ -218,7 +222,7 @@ export function ProjectEditor({
               t={t}
               kind="competitors"
               onCompetitor={(c) => {
-                if (competitors.length < 10)
+                if (competitors.length < MAX_COMPETITORS)
                   setCompetitors((cs) => [
                     ...cs,
                     { id: null, name: c.name, domain: c.domain ?? "" },

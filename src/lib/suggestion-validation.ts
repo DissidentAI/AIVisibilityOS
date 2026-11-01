@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeWebsiteDomain } from "./project-validation";
+import { MAX_COMPETITORS } from "./project-limits";
 export const suggestionContextSchema = z.object({
   name: z.string().trim().max(100),
   domain: z.string().trim().max(253),
@@ -10,7 +11,7 @@ export const suggestionContextSchema = z.object({
   questions: z.array(z.string().trim().max(1000)).max(50),
   competitors: z
     .array(z.object({ name: z.string().trim().max(100), domain: z.string().trim().max(253) }))
-    .max(10),
+    .max(MAX_COMPETITORS),
 });
 export type SuggestionContext = z.infer<typeof suggestionContextSchema>;
 const resultSchema = z.object({

@@ -1,7 +1,7 @@
 export const AUDIT_VERSION = "public-html-v1";
 export const AUDIT_AGENT = "AIVisibilityOSAudit";
 export const AUDIT_LIMITS = {
-  maxSites: 4,
+  maxSites: 11,
   maxPages: 100,
   defaultPages: 50,
   maxDepth: 5,

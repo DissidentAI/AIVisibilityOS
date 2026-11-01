@@ -1,6 +1,6 @@
 # Audit des sites et comparaison concurrentielle
 
-L’onglet **Audit de site** explore le domaine du projet et jusqu’à trois concurrents choisis parmi les marques configurées. Il conserve les preuves en PostgreSQL et continue sans navigateur ouvert. Le worker habituel suffit : aucun navigateur distant ni service supplémentaire n’est requis.
+L’onglet **Audit de site** explore le domaine du projet et jusqu’à dix concurrents choisis parmi les marques configurées. Il conserve les preuves en PostgreSQL et continue sans navigateur ouvert. Le worker habituel suffit : aucun navigateur distant ni service supplémentaire n’est requis.
 
 1. Choisir les concurrents et 10, 25, 50 ou 100 pages maximum par site.
 2. Lancer l’exploration. Chaque URL conserve la date, le statut HTTP, les erreurs et les faits extraits. Le bouton Arrêter conserve les preuves déjà enregistrées.
@@ -45,6 +45,6 @@ Sources techniques : [Cheerio](https://cheerio.js.org/docs/intro/), [robots-pars
 
 ## English usage and limits
 
-Open **Site audit**, select up to three configured competitors and a page limit, then start crawling. The persistent worker stores actual public HTML evidence. Inspect page-level checks, comparison denominators, coverage and stop reasons. CSV and JSON exports retain dates and provenance. The optional AI synthesis requires a provider, a cost estimate and confirmation; it shares the same API budgets and rate controls as visibility scans, but never contributes to mention metrics.
+Open **Site audit**, select up to ten configured competitors and a page limit, then start crawling. The persistent worker stores actual public HTML evidence. Inspect page-level checks, comparison denominators, coverage and stop reasons. CSV and JSON exports retain dates and provenance. The optional AI synthesis requires a provider, a cost estimate and confirmation; it shares the same API budgets and rate controls as visibility scans, but never contributes to mention metrics.
 
 Only public static HTML is analyzed. Robots rules, pinned public DNS/IP connections, same-site redirects, pacing and resource limits apply. JavaScript, private pages, external link testing, browser performance and ranking outcomes are outside this audit. Completion does not guarantee that every website page was discovered. AI references are validated against collected pages; interpretations still require human review. Exports and account deletion/retention cover audit data.

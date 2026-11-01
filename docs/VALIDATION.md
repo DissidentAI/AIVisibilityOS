@@ -127,3 +127,11 @@ Les trois PDF ont été générés avec des fixtures explicitement synthétiques
 Le parcours WebKit de préparation teste : ajout par lots, génération IA de test réellement traitée par la file, filtrage de concurrents pendant la saisie, édition du projet, rechargement des réglages du scan, conservation de la réponse initiale, langue chinoise persistée, rapport anglais depuis une interface chinoise, téléchargement PDF réel, écrans de 390 et 320 px. Les scripts de fixture refusent toute base non suffixée `_test`.
 
 Vérification finale locale de cette tranche : les 15 parcours Chromium/WebKit passent ensemble, ainsi que les 125 tests unitaires/intégration, TypeScript, le build de production et le formatage. L’audit npm ne rapporte aucune vulnérabilité. Les liens de téléchargement déclarent explicitement leur comportement pour Safari ; la fermeture d’une fenêtre dispose d’un délai de repli si l’animation ne signale pas sa fin.
+
+## Comparaison étendue à 50 concurrents — 1 novembre 2026
+
+131 tests unitaires/intégration et les 16 parcours Chromium/WebKit passent. Les nouveaux contrôles couvrent création/édition à 50 concurrents, refus du 51e concurrent, ajouts concurrents au plafond, séparation des organisations, conservation des snapshots et coût/nombre d’appels inchangés à questions/fournisseurs/échantillons identiques. Les grands projets Unicode et les brouillons contenant 50 adresses longues restent pris en charge avec une taille maximale bornée.
+
+Le parcours WebKit crée plus de deux lignes dès l’onboarding, supprime une ligne intermédiaire, recharge le brouillon, compare 51 marques, recherche la dernière marque, ouvre ses réglages et sélectionne dix concurrents dans l’audit, à 390 et 320 px. L’intégration vérifie les onze sites de l’audit, le refus d’une sélection excessive et le maintien du quota de 2 000 pages demandées sur 24 heures. Aucun crawl réel ni appel IA payant n’a été ajouté pour ces tests.
+
+Le PDF synthétique de 51 marques avec de longs noms chinois est paginé sans tronquer la liste. Extraction Poppler : chacun des 50 concurrents apparaît dans la comparaison et dans les quatre questions ; vérification visuelle d’une page de questions. Les tests PDF existants FR/EN/zh-CN et les preuves historiques restent valides. Aucune migration de base n’est nécessaire.
