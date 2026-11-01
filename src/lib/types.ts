@@ -36,6 +36,10 @@ export type Run = {
   valid: number;
   pending: number;
   failed: number;
+  attempt_count?: number;
+  retried?: number;
+  last_activity_at?: string;
+  campaign_id?: string | null;
 };
 export type ResponseRecord = {
   id: string;
@@ -48,6 +52,9 @@ export type ResponseRecord = {
   returned_model: string | null;
   channel: string;
   sample: number;
+  slot_id?: string;
+  attempt?: number;
+  created_at?: string;
   parameters: Record<string, unknown>;
   status: string;
   answer: string | null;
@@ -80,6 +87,9 @@ export type RunDetail = {
   responses: ResponseRecord[];
   mentions: Mention[];
   citations: Citation[];
+  previousAttempts?: ResponseRecord[];
+  previousMentions?: Mention[];
+  previousCitations?: Citation[];
 };
 export type State = {
   execution?: import("./execution-policy").ExecutionStatus[];

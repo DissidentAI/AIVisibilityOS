@@ -227,6 +227,11 @@ export function HistoryPanel({
                         >
                           {status(r.status)}
                         </span>
+                        {(r.attempt ?? 1) > 1 && (
+                          <small className="block muted">
+                            {t("Tentative", "Attempt")} {r.attempt}
+                          </small>
+                        )}
                       </td>
                       <td data-label={t("Coût estimé", "Est. cost")}>
                         {r.cost_micros == null ? "—" : money(r.cost_micros)}
@@ -257,6 +262,24 @@ export function HistoryPanel({
                                 {t("Réessayer", "Retry")}
                               </Button>
                             )
+                          )}
+                          {(detail.previousAttempts ?? []).some((p) => p.slot_id === r.slot_id) && (
+                            <details className="attempt-history">
+                              <summary>{t("Tentatives précédentes", "Previous attempts")}</summary>
+                              {(detail.previousAttempts ?? [])
+                                .filter((p) => p.slot_id === r.slot_id)
+                                .map((p) => (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    key={p.id}
+                                    onClick={() => onOpen(p)}
+                                  >
+                                    {t("Tentative", "Attempt")} {p.attempt ?? 1} ·{" "}
+                                    {status(p.status)}
+                                  </Button>
+                                ))}
+                            </details>
                           )}
                         </div>
                       </td>

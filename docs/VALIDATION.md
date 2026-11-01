@@ -113,3 +113,7 @@ Le parcours WebKit utilise deux domaines réservés et huit URL synthétiques, d
 Un contrôle réseau réel et non facturé a exploré cinq pages publiques de karburo.io le 1er novembre 2026, après robots.txt HTTP200 : cinq pages HTML HTTP200, 188 URL découvertes et arrêt explicite au plafond de cinq pages. Ce contrôle ne couvre pas l’intégralité du site. Les synthèses IA restent validées par des adaptateurs de test ; aucun nouvel appel payant n’a été lancé par cette validation.
 
 Résultats de cette tranche : 112 tests unitaires/PostgreSQL, 14 parcours navigateur Chromium/WebKit, compilation de production, TypeScript et formatage validés ; npm audit ne rapporte aucune vulnérabilité. Le quota de pages a fait l’objet d’un contrôle additionnel après durcissement, et le parcours d’audit mobile a été rejoué après correction de la largeur de son tableau. Le serveur de test reçoit désormais un arrêt gracieux, conformément à la [configuration Playwright](https://playwright.dev/docs/test-webserver), pour éviter l’accumulation de segments mémoire de PostgreSQL après les tests macOS.
+
+## Reprises regroupées — 1 novembre 2026
+
+Migration 0009 testée sur une chaîne de campagnes héritées : aucun effacement des réponses, anciennes URL résolues vers une campagne canonique. 42 tests d’intégration et deux scénarios WebKit passent : reprises ciblées puis groupées, trois réponses finales dans une seule campagne, deux tentatives antérieures consultables, annulation sans lancement. Build de production validé.

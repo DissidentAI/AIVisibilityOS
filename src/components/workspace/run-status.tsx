@@ -1,5 +1,5 @@
 import { ArrowUpRight, RotateCcw } from "lucide-react";
-import type { Run, RunDetail } from "@/lib/types";
+import type { RunDetail } from "@/lib/types";
 import { canRetry, retrySource } from "@/lib/run-insights";
 import { Button } from "../ui/button";
 import type { Translate } from "./shared";
@@ -12,7 +12,6 @@ export function RunStatus({
   onRetry,
   onRun,
   execution = [],
-  retries = [],
   retryDisabled = false,
 }: {
   detail: RunDetail;
@@ -20,7 +19,6 @@ export function RunStatus({
   onRetry: (ids: string[]) => void;
   onRun: (id: string) => void;
   execution?: ExecutionStatus[];
-  retries?: Run[];
   retryDisabled?: boolean;
 }) {
   const { total, valid, pending, failed } = detail.run;
@@ -135,30 +133,21 @@ export function RunStatus({
           </Button>
         </div>
       )}
-      {retries.length > 0 && (
-        <div className="retry-followup" aria-label={t("Reprises ciblées", "Targeted retries")}>
-          <h3>{t("Reprises ciblées", "Targeted retries")}</h3>
+      {!!detail.run.retried && (
+        <div className="retry-followup">
+          <h3>{t("Reprises intégrées à cette campagne", "Retries included in this campaign")}</h3>
           <p className="small muted">
             {t(
-              "Toutes les réponses initiales restent affichées. Les indicateurs ci-dessus décrivent la campagne initiale ; chaque reprise conserve ses propres résultats et coûts.",
-              "All original answers remain visible. The figures above describe the original campaign; each retry keeps its own results and costs.",
+              `${detail.run.retried} réponse(s) relancée(s), ${detail.run.attempt_count} tentatives au total. Les indicateurs utilisent la dernière tentative de chaque question, fournisseur et échantillon. Les anciennes tentatives restent consultables dans le journal et l’export CSV.`,
+              `${detail.run.retried} retried response(s), ${detail.run.attempt_count} attempts in total. Metrics use the latest attempt for each question, provider and sample. Earlier attempts remain available in the ledger and CSV export.`,
             )}
           </p>
-          {retries.map((run) => (
-            <div className="retry-provenance" key={run.id}>
-              <p className="small" role={run.pending ? "status" : undefined}>
-                {t("Reprise", "Retry")} · {run.valid}/{run.total}{" "}
-                {t("réponses valides", "valid answers")} ·{" "}
-                {run.pending
-                  ? t(`${run.pending} en cours ou en attente`, `${run.pending} running or queued`)
-                  : t("terminée", "completed")}
-              </p>
-              <Button variant="ghost" size="sm" onClick={() => onRun(run.id)}>
-                {t("Consulter la reprise", "Inspect retry")}
-                <ArrowUpRight size={14} />
-              </Button>
-            </div>
-          ))}
+          <p className="small muted">
+            {t(
+              "Les reprises ciblées peuvent modifier la composition de l’échantillon : cette campagne est exclue des comparaisons automatiques de tendance.",
+              "Targeted retries can change sample composition: this campaign is excluded from automatic trend comparisons.",
+            )}
+          </p>
         </div>
       )}
     </section>

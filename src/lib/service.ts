@@ -37,6 +37,7 @@ import {
 import { requestOptions } from "./providers";
 import { snapshotJson } from "./snapshot-json";
 import { getExecutionStatus } from "./execution-control";
+import { campaignFor, latestAttempts } from "./campaigns";
 export { projectSchema, brandSchema } from "./project-validation";
 export const uuidSchema = z.uuid();
 export function ceilingMicros() {
@@ -299,6 +300,7 @@ export async function enqueueSnapshot(
   projectId: string,
   snapshot: Snapshot,
   selectedTasks?: MeasurementTask[],
+  existingRunId?: string,
 ) {
   await tx`select id from organizations where id=${user.org_id} for update`;
   const [project] =
@@ -346,12 +348,30 @@ export async function enqueueSnapshot(
   if (total > Math.min(budget.orgRemaining, budget.installationRemaining))
     throw new AppError("budget_exceeded", 409);
   const hash = digest(snapshotJson(snapshot));
-  const [run] =
-    await tx`insert into measurement_runs (org_id,project_id,config_hash,snapshot) values (${user.org_id},${projectId},${hash},${JSON.stringify(snapshot)}::jsonb) returning id`;
+  const [run] = existingRunId
+    ? await tx`select id from measurement_runs where id=${existingRunId} and org_id=${user.org_id} and project_id=${projectId} and campaign_id is null`
+    : await tx`insert into measurement_runs (org_id,project_id,config_hash,snapshot) values (${user.org_id},${projectId},${hash},${JSON.stringify(snapshot)}::jsonb) returning id`;
+  if (!run) throw new AppError("not_found", 404);
   for (const task of tasks) {
     const { provider, sample, queryText } = task;
-    const [response] =
-      await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,channel,sample,parameters) values (${user.org_id},${run.id},${queryText},${provider},${snapshot.models[provider]},${provider === "openrouter" ? "openrouter_api" : "official_api"},${sample},${JSON.stringify(snapshot.parameters)}::jsonb) returning id`;
+    const [source] = task.sourceResponseId
+      ? await tx`select a.slot_id,a.attempt from ai_responses a join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where a.id=${task.sourceResponseId} and a.org_id=${user.org_id} and coalesce(r.campaign_id,r.id)=${run.id}`
+      : [];
+    if (task.sourceResponseId && !source) throw new AppError("not_found", 404);
+    if (source && source.attempt >= 20) throw new AppError("retry_attempt_limit", 409);
+    const parameters = source
+      ? {
+          ...snapshot.parameters,
+          retry: {
+            sourceRunId: run.id,
+            sourceResponseId: task.sourceResponseId,
+            attempt: source.attempt + 1,
+          },
+        }
+      : snapshot.parameters;
+    const [response] = source
+      ? await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,channel,sample,parameters,slot_id,attempt) values (${user.org_id},${run.id},${queryText},${provider},${snapshot.models[provider]},${provider === "openrouter" ? "openrouter_api" : "official_api"},${sample},${JSON.stringify(parameters)}::jsonb,${source.slot_id},${source.attempt + 1}) returning id`
+      : await tx`insert into ai_responses (org_id,run_id,query_text,provider,model,channel,sample,parameters) values (${user.org_id},${run.id},${queryText},${provider},${snapshot.models[provider]},${provider === "openrouter" ? "openrouter_api" : "official_api"},${sample},${JSON.stringify(parameters)}::jsonb) returning id`;
     await tx`insert into usage_records (org_id,response_id,amount_micros) values (${user.org_id},${response.id},${reserveMicros(provider, queryText, snapshot.system, snapshot.parameters.search === true ? "web" : "baseline", modelConfiguration(provider, snapshot.models[provider]))})`;
     if (task.sourceResponseId)
       await tx`insert into response_retries (org_id,source_response_id,retry_response_id) values (${user.org_id},${task.sourceResponseId},${response.id})`;
@@ -371,42 +391,58 @@ export async function createRun(user: User, data: unknown) {
 }
 export async function listRuns(user: User, projectId: string): Promise<Run[]> {
   await ownedProject(user, projectId);
-  return sql<
-    Run[]
-  >`select r.*, count(a.id)::int as total, count(a.id) filter(where a.status='succeeded')::int as valid, count(a.id) filter(where a.status in ('queued','running'))::int as pending, count(a.id) filter(where a.status in ('failed','invalid','uncertain'))::int as failed from measurement_runs r left join ai_responses a on a.run_id=r.id and a.org_id=r.org_id where r.project_id=${projectId} and r.org_id=${user.org_id} group by r.id order by r.created_at desc limit 100`;
+  return sql<Run[]>`with attempts as (
+    select coalesce(r.campaign_id,r.id) as campaign_id,a.* from ai_responses a join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where r.project_id=${projectId} and r.org_id=${user.org_id}
+  ), latest as (
+    select distinct on(campaign_id,slot_id) * from attempts order by campaign_id,slot_id,attempt desc,created_at desc,id
+  ), totals as(select campaign_id,count(*)::int as attempt_count,max(coalesce(finished_at,started_at,created_at)) as last_activity_at from attempts group by campaign_id)
+  select r.*,count(a.id)::int as total,count(a.id) filter(where a.status='succeeded')::int as valid,
+    count(a.id) filter(where a.status in ('queued','running'))::int as pending,
+    count(a.id) filter(where a.status in ('failed','invalid','uncertain'))::int as failed,
+    count(a.id) filter(where a.attempt>1)::int as retried,t.attempt_count,t.last_activity_at
+  from measurement_runs r left join latest a on a.campaign_id=r.id left join totals t on t.campaign_id=r.id
+  where r.project_id=${projectId} and r.org_id=${user.org_id} and r.campaign_id is null
+  group by r.id,t.attempt_count,t.last_activity_at order by r.created_at desc limit 100`;
 }
 export async function getRun(user: User, id: string): Promise<RunDetail> {
-  uuidSchema.parse(id);
-  const [run] = await sql<
-    Run[]
-  >`select * from measurement_runs where id=${id} and org_id=${user.org_id}`;
-  if (!run) throw new AppError("not_found", 404);
+  const run = await campaignFor(sql, user, id);
   const [responses, mentions, citations] = await Promise.all([
     sql<
       ResponseRecord[]
-    >`select a.id,a.run_id,a.query_text,a.provider,a.model,a.returned_model,a.channel,a.sample,a.parameters,a.status,a.answer,a.grounding,a.error_code,a.request_id,a.input_tokens,a.output_tokens,a.cost_micros,a.started_at,a.finished_at,
+    >`select a.id,a.run_id,a.query_text,a.provider,a.model,a.returned_model,a.channel,a.sample,a.slot_id,a.attempt,a.created_at,a.parameters,a.status,a.answer,a.grounding,a.error_code,a.request_id,a.input_tokens,a.output_tokens,a.cost_micros,a.started_at,a.finished_at,
     child.run_id as retry_run_id, origin.source_response_id from ai_responses a
+    join measurement_runs parent on parent.id=a.run_id and parent.org_id=a.org_id
     left join response_retries next on next.source_response_id=a.id and next.org_id=a.org_id
     left join ai_responses child on child.id=next.retry_response_id and child.org_id=a.org_id
     left join response_retries origin on origin.retry_response_id=a.id and origin.org_id=a.org_id
-    where a.run_id=${id} and a.org_id=${user.org_id} order by a.query_text,a.provider,a.sample`,
+    where coalesce(parent.campaign_id,parent.id)=${run.id} and a.org_id=${user.org_id} order by a.query_text,a.provider,a.sample,a.attempt desc`,
     sql<
       Mention[]
-    >`select m.* from brand_mentions m join ai_responses a on a.id=m.response_id and a.org_id=m.org_id where a.run_id=${id} and m.org_id=${user.org_id}`,
+    >`select m.* from brand_mentions m join ai_responses a on a.id=m.response_id and a.org_id=m.org_id join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where coalesce(r.campaign_id,r.id)=${run.id} and m.org_id=${user.org_id}`,
     sql<
       Citation[]
-    >`select c.* from citations c join ai_responses a on a.id=c.response_id and a.org_id=c.org_id where a.run_id=${id} and c.org_id=${user.org_id}`,
+    >`select c.* from citations c join ai_responses a on a.id=c.response_id and a.org_id=c.org_id join measurement_runs r on r.id=a.run_id and r.org_id=a.org_id where coalesce(r.campaign_id,r.id)=${run.id} and c.org_id=${user.org_id}`,
   ]);
+  const { current, previous } = latestAttempts(responses);
+  const ids = new Set(current.map((r) => r.id));
   return {
     run: {
       ...run,
-      total: responses.length,
-      valid: responses.filter((r) => r.status === "succeeded").length,
-      pending: responses.filter((r) => ["queued", "running"].includes(r.status)).length,
-      failed: responses.filter((r) => ["failed", "invalid", "uncertain"].includes(r.status)).length,
+      total: current.length,
+      valid: current.filter((r) => r.status === "succeeded").length,
+      pending: current.filter((r) => ["queued", "running"].includes(r.status)).length,
+      failed: current.filter((r) => ["failed", "invalid", "uncertain"].includes(r.status)).length,
+      attempt_count: responses.length,
+      retried: current.filter((r) => (r.attempt ?? 1) > 1).length,
+      last_activity_at: responses
+        .map((r) => r.finished_at ?? r.started_at ?? r.created_at!)
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0],
     },
-    responses,
-    mentions,
-    citations,
+    responses: current,
+    mentions: mentions.filter((m) => ids.has(m.response_id)),
+    citations: citations.filter((c) => ids.has(c.response_id)),
+    previousAttempts: previous,
+    previousMentions: mentions.filter((m) => !ids.has(m.response_id)),
+    previousCitations: citations.filter((c) => !ids.has(c.response_id)),
   };
 }

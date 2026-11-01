@@ -25,6 +25,7 @@ import { renderReport } from "@/lib/report-pdf";
 import { PROVIDERS } from "@/lib/providers";
 import { createRetry, estimateRetry } from "@/lib/retries";
 import { saveExecutionPolicy } from "@/lib/execution-control";
+import { allAttempts } from "@/lib/run-insights";
 import {
   createAudit,
   getAudit,
@@ -307,8 +308,11 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
     ) {
       const result = await getRun(user, path[1]);
       if (path[2] === "export") {
-        const rows = result.responses.map((r) => ({
+        const currentIds = new Set(result.responses.map((r) => r.id));
+        const rows = allAttempts(result).map((r) => ({
           ...r,
+          campaign_id: result.run.id,
+          is_current_attempt: currentIds.has(r.id),
           campaign_date: result.run.created_at,
           config_hash: result.run.config_hash,
           methodology: result.run.snapshot.methodology,
@@ -317,8 +321,12 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           country_mode: "prompt_context_only",
           cost_currency: "USD",
           system_instruction: result.run.snapshot.system,
-          mentions: result.mentions.filter((m) => m.response_id === r.id),
-          citations: result.citations.filter((c) => c.response_id === r.id),
+          mentions: [...result.mentions, ...(result.previousMentions ?? [])].filter(
+            (m) => m.response_id === r.id,
+          ),
+          citations: [...result.citations, ...(result.previousCitations ?? [])].filter(
+            (c) => c.response_id === r.id,
+          ),
         }));
         return new Response(toCsv(rows), {
           headers: {

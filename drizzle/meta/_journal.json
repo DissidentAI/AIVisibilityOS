@@ -64,6 +64,13 @@
       "when": 1793504851795,
       "tag": "0008_tan_rumiko_fujikawa",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793507248354,
+      "tag": "0009_daffy_silver_fox",
+      "breakpoints": true
     }
   ]
 }

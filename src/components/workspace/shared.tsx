@@ -186,6 +186,10 @@ export function friendly(code: string, t: Translate) {
       `Unable to verify ${PROVIDER_LABELS[provider]} right now. No scan was started; please try again shortly.`,
     );
   const errors: Record<string, string> = {
+    retry_attempt_limit: t(
+      "Cette question a atteint vingt tentatives. Vérifiez la connexion et les réglages avant de préparer une nouvelle campagne.",
+      "This question has reached twenty attempts. Review the connection and settings before preparing a new campaign.",
+    ),
     audit_already_running: t(
       "Une exploration est en cours. Attendez sa fin ou arrêtez-la depuis l’audit.",
       "A crawl is running. Wait for it to finish or stop it from the audit.",

@@ -222,7 +222,9 @@ export async function maintenance() {
     await tx`delete from reports where created_at < now() - ${days} * interval '1 day'`;
     await tx`delete from schedule_events where created_at < now() - ${days} * interval '1 day'`;
     // Retain usage accounting separately; queued/running jobs are never purged.
-    await tx`delete from measurement_runs r where r.created_at < now() - ${days} * interval '1 day' and not exists(select 1 from ai_responses a where a.run_id=r.id and a.status in ('queued','running'))`;
+    await tx`delete from measurement_runs r where r.campaign_id is null and r.created_at<now()-${days}*interval '1 day'
+      and not exists(select 1 from ai_responses a join measurement_runs parent on parent.id=a.run_id and parent.org_id=a.org_id where coalesce(parent.campaign_id,parent.id)=r.id
+        and (a.status in ('queued','running') or coalesce(a.finished_at,a.started_at,a.created_at)>=now()-${days}*interval '1 day'))`;
     await tx`delete from site_audits a where a.created_at<now()-${days}*interval '1 day'
       and not exists(select 1 from audit_sites s where s.audit_id=a.id and s.status in ('queued','running'))
       and not exists(select 1 from audit_ai_jobs j where j.audit_id=a.id and j.status in ('queued','running'))`;

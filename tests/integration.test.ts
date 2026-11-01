@@ -15,9 +15,17 @@ import {
 import sharp from "sharp";
 import { beforeAll, beforeEach, afterEach, afterAll, describe, test, expect, vi } from "vitest";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db, sql } from "../src/db/client";
-import { createProject, createRun, getRun, getState, saveCredential } from "../src/lib/service";
+import {
+  createProject,
+  createRun,
+  getRun,
+  getState,
+  listRuns,
+  saveCredential,
+} from "../src/lib/service";
 import {
   claimJob as claimQueueJob,
   settleJob,
@@ -745,6 +753,52 @@ const fixtureResult = {
   citations: [],
 };
 describe("traceable retries, isolated tenants and honest summaries", () => {
+  test("migration groups legacy retry chains without deleting evidence or changing successful answers", async () => {
+    const a = await prepared();
+    const root = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openai"],
+      samples: 1,
+    });
+    while (await workOnce(async () => fixtureResult)) {}
+    const original = await getRun(a.user, root.id);
+    const source = original.responses[0];
+    await sql`update ai_responses set status='failed' where id=${source.id}`;
+    let parent = root.id,
+      lastResponse = source.id;
+    for (let n = 0; n < 2; n++) {
+      const snapshot = structuredClone(original.run.snapshot);
+      snapshot.parameters.retry = { sourceRunId: parent, sourceResponseIds: [lastResponse] };
+      const [child] =
+        await sql`insert into measurement_runs(org_id,project_id,snapshot,config_hash) values(${a.user.org_id},${a.projectId},${JSON.stringify(snapshot)}::jsonb,${original.run.config_hash}) returning id`;
+      const [response] =
+        await sql`insert into ai_responses(org_id,run_id,query_text,provider,model,sample,parameters,status,answer,cost_micros,finished_at)
+        values(${a.user.org_id},${child.id},${source.query_text},${source.provider},${source.model},${source.sample},${JSON.stringify(snapshot.parameters)}::jsonb,${n ? "succeeded" : "failed"},${n ? "legacy retry evidence" : null},7,now()) returning id`;
+      await sql`insert into response_retries(org_id,source_response_id,retry_response_id) values(${a.user.org_id},${lastResponse},${response.id})`;
+      parent = child.id;
+      lastResponse = response.id;
+    }
+    const migration = readFileSync("drizzle/0009_daffy_silver_fox.sql", "utf8");
+    for (const statement of migration
+      .slice(migration.indexOf("WITH RECURSIVE campaign_tree"))
+      .split("--> statement-breakpoint"))
+      await sql.unsafe(statement);
+    const grouped = await getRun(a.user, parent);
+    expect(grouped.run.id).toBe(root.id);
+    expect(grouped.responses).toHaveLength(original.responses.length);
+    expect(grouped.previousAttempts).toHaveLength(2);
+    expect(grouped.responses.find((r) => r.id === lastResponse)).toMatchObject({
+      attempt: 3,
+      slot_id: source.slot_id,
+      answer: "legacy retry evidence",
+    });
+    expect(grouped.responses.find((r) => r.id === original.responses[1].id)).toEqual(
+      original.responses[1],
+    );
+    expect(await listRuns(a.user, a.projectId)).toHaveLength(1);
+    expect((await sql`select count(*)::int as n from measurement_runs`)[0].n).toBe(3);
+    expect((await sql`select count(*)::int as n from ai_responses`)[0].n).toBe(12);
+  });
   async function failedCampaign() {
     const a = await prepared();
     const run = await createRun(a.user, {
@@ -779,13 +833,17 @@ describe("traceable retries, isolated tenants and honest summaries", () => {
       expectedQuoteHash: quote.quoteHash,
     });
     const child = await getRun(a.user, retry.id);
-    expect(child.run.total).toBe(1);
-    expect(child.responses[0]).toMatchObject({
+    expect(retry.id).toBe(a.run.id);
+    expect(child.run.total).toBe(a.detail.run.total);
+    expect(child.run.pending).toBe(1);
+    expect(child.responses.find((r) => r.source_response_id === target.id)).toMatchObject({
       query_text: target.query_text,
       provider: target.provider,
       model: target.model,
       sample: target.sample,
       source_response_id: target.id,
+      attempt: 2,
+      slot_id: target.slot_id,
     });
     expect(child.run.snapshot.brands).toEqual(a.detail.run.snapshot.brands);
     expect(child.run.snapshot.system).toBe(a.detail.run.snapshot.system);
@@ -794,7 +852,8 @@ describe("traceable retries, isolated tenants and honest summaries", () => {
       await sql`select amount_micros,kind from usage_records where response_id=${target.id}`,
     ).toEqual(usageBefore);
     expect(
-      (await getRun(a.user, a.run.id)).responses.find((r) => r.id === target.id)?.retry_run_id,
+      (await getRun(a.user, a.run.id)).previousAttempts?.find((r) => r.id === target.id)
+        ?.retry_run_id,
     ).toBe(retry.id);
     await workOnce(async () => fixtureResult);
     expect(comparisonSignature((await getRun(a.user, retry.id)).responses)).toBeNull();
@@ -805,9 +864,7 @@ describe("traceable retries, isolated tenants and honest summaries", () => {
     const exported = await (await route("GET", "account/export", a.cookie)).json();
     expect(exported.retries).toHaveLength(1);
     const report = await createReport(a.user, { runId: retry.id, locale: "fr" });
-    expect(
-      (await getReport(a.user, report.id)).payload.current.run.snapshot.parameters.retry,
-    ).toBeTruthy();
+    expect((await getReport(a.user, report.id)).payload.current.run.retried).toBe(1);
   });
   test("bulk retry excludes successes and duplicate concurrent launches reserve only once", async () => {
     const a = await failedCampaign();
@@ -821,7 +878,7 @@ describe("traceable retries, isolated tenants and honest summaries", () => {
     expect(launches.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(launches.filter((r) => r.status === "rejected")).toHaveLength(1);
     expect((await sql`select count(*)::int as n from response_retries`)[0].n).toBe(3);
-    expect((await sql`select count(*)::int as n from measurement_runs`)[0].n).toBe(2);
+    expect((await sql`select count(*)::int as n from measurement_runs`)[0].n).toBe(1);
     await expect(estimateRetry(a.user, a.run.id, {})).rejects.toThrow("retry_nothing_to_retry");
     // A failed new attempt can itself be retried, with its own lineage.
     while (
@@ -829,11 +886,11 @@ describe("traceable retries, isolated tenants and honest summaries", () => {
         throw new ProviderError("provider_http_503");
       })
     ) {}
-    const childId = (await getRun(a.user, a.run.id)).responses.find(
-      (r) => r.retry_run_id,
-    )!.retry_run_id!;
-    const next = await estimateRetry(a.user, childId, {});
-    await createRetry(a.user, childId, {
+    expect((await getRun(a.user, a.run.id)).responses.filter((r) => r.attempt === 2)).toHaveLength(
+      3,
+    );
+    const next = await estimateRetry(a.user, a.run.id, {});
+    await createRetry(a.user, a.run.id, {
       responseIds: next.responseIds,
       expectedQuoteHash: next.quoteHash,
     });

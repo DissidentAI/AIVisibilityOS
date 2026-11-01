@@ -7,6 +7,7 @@ import { snapshotJson } from "./snapshot-json";
 import { reserveMicros, modelConfiguration } from "./providers";
 import { assertSnapshotAvailable, budgetStatus, enqueueSnapshot, uuidSchema } from "./service";
 import type { Run, ResponseRecord, Snapshot, User } from "./types";
+import { campaignFor } from "./campaigns";
 
 const selectionSchema = z.object({
   responseIds: z.array(z.uuid()).min(1).max(1250).optional(),
@@ -18,13 +19,11 @@ const launchSchema = selectionSchema.extend({
 // Reuse the frozen methodology, never today's editable project or a provider fallback.
 async function prepare(tx: TransactionSql, user: User, runId: string, ids?: string[]) {
   uuidSchema.parse(runId);
-  const [run] = await tx<
-    Run[]
-  >`select * from measurement_runs where id=${runId} and org_id=${user.org_id}`;
-  if (!run) throw new AppError("not_found", 404);
+  const run = await campaignFor(tx, user, runId);
+  runId = run.id;
   const responses = await tx<(ResponseRecord & { retried: boolean })[]>`
     select a.*, exists(select 1 from response_retries r where r.source_response_id=a.id and r.org_id=a.org_id) as retried
-    from ai_responses a where a.run_id=${runId} and a.org_id=${user.org_id} order by a.id`;
+    from ai_responses a join measurement_runs parent on parent.id=a.run_id and parent.org_id=a.org_id where coalesce(parent.campaign_id,parent.id)=${runId} and a.org_id=${user.org_id} order by a.id`;
   const requested = ids ? new Set(ids) : null;
   if (
     requested &&
@@ -91,6 +90,6 @@ export async function createRetry(user: User, runId: string, data: unknown) {
     await tx`select pg_advisory_xact_lock(824762)`;
     const { run, snapshot, tasks, quote } = await prepare(tx, user, runId, p.responseIds);
     if (quote.quoteHash !== p.expectedQuoteHash) throw new AppError("configuration_changed", 409);
-    return enqueueSnapshot(tx, user, run.project_id, snapshot, tasks);
+    return enqueueSnapshot(tx, user, run.project_id, snapshot, tasks, run.id);
   });
 }

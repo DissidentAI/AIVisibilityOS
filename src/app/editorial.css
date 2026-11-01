@@ -92,6 +92,15 @@
   margin: 0 0 8px;
   font-size: 14px;
 }
+.attempt-history {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+.attempt-history summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 6px 0;
+}
 .history-filters {
   display: grid;
   grid-template-columns: minmax(200px, 2fr) minmax(130px, 1fr) minmax(150px, 1fr);

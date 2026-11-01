@@ -1,4 +1,7 @@
 import type { ResponseRecord, RunDetail } from "./types";
+export function allAttempts(detail: RunDetail) {
+  return [...detail.responses, ...(detail.previousAttempts ?? [])];
+}
 
 export const failedStatuses = ["failed", "invalid", "uncertain"];
 export function canRetry(response: ResponseRecord) {

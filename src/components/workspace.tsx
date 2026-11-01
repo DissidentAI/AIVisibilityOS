@@ -77,7 +77,7 @@ import { RetryDialog } from "./workspace/retry-dialog";
 import { RunStatus } from "./workspace/run-status";
 import { OpportunitiesPanel } from "./workspace/opportunities-panel";
 import { SiteAuditPanel } from "./workspace/site-audit-panel";
-import { canRetry, costSummary } from "@/lib/run-insights";
+import { canRetry, costSummary, allAttempts } from "@/lib/run-insights";
 type Tab =
   | "overview"
   | "queries"
@@ -130,8 +130,8 @@ export function Workspace() {
     try {
       // A retained child may outlive its source, and the selector lists only 100 runs.
       const d = await api<RunDetail>(`runs/${id}`);
-      setRuns((rs) => (rs.some((r) => r.id === id) ? rs : [d.run, ...rs]));
-      setRunId(id);
+      setRuns((rs) => (rs.some((r) => r.id === d.run.id) ? rs : [d.run, ...rs]));
+      setRunId(d.run.id);
       setDetail(d);
       setResponse(null);
       setTab("history");
@@ -292,7 +292,7 @@ export function Workspace() {
         .size
     : 0;
   const metric = mentionRate(count, valid.length);
-  const costs = costSummary(detail?.responses ?? []);
+  const costs = costSummary(detail ? allAttempts(detail) : []);
   const date = (value: string) =>
     new Date(value).toLocaleString(lang === "fr" ? "fr-FR" : "en-GB", {
       dateStyle: "medium",
@@ -815,11 +815,6 @@ export function Workspace() {
                       onRun={openRun}
                       execution={state.execution}
                       retryDisabled={campaignPending}
-                      retries={runs.filter(
-                        (r) =>
-                          (r.snapshot.parameters.retry as { sourceRunId?: string } | undefined)
-                            ?.sourceRunId === detail.run.id,
-                      )}
                     />
                   )}
                   {tab === "opportunities" && (
@@ -1661,8 +1656,8 @@ export function Workspace() {
               setError("");
               setNotice(
                 t(
-                  "Reprise mise en file. Toutes les réponses de cette campagne restent affichées. Retrouvez les nouvelles tentatives dans « Reprises ciblées ».",
-                  "Retry queued. All answers from this campaign remain visible. Follow the new attempts under “Targeted retries”.",
+                  "Reprise lancée dans la même campagne. Les réponses réussies sont conservées ; chaque question garde ses tentatives précédentes.",
+                  "Retry started in the same campaign. Successful answers are kept; each question retains its previous attempts.",
                 ),
               );
               refresh().catch((e) => setError(e.message));
@@ -1778,14 +1773,18 @@ export function Workspace() {
             )}
             <p className="muted small">
               {response.finished_at ? date(response.finished_at) : t("En attente", "Pending")} ·{" "}
-              {t("Échantillon", "Sample")} #{response.sample} ·{" "}
+              {t("Échantillon", "Sample")} #{response.sample} · {t("Tentative", "Attempt")}{" "}
+              {response.attempt ?? 1} ·{" "}
               {response.cost_micros == null
                 ? t("Coût inconnu", "Cost unknown")
                 : money(response.cost_micros)}
             </p>
             <GroundedAnswer
               response={response}
-              citations={detail?.citations.filter((c) => c.response_id === response.id) ?? []}
+              citations={[
+                ...(detail?.citations ?? []),
+                ...(detail?.previousCitations ?? []),
+              ].filter((c) => c.response_id === response.id)}
               t={t}
             />
             {response.error_code && (
@@ -1818,7 +1817,7 @@ export function Workspace() {
               )
             )}
             <h3>{t("Extraits justifiant les mentions", "Evidence supporting mentions")}</h3>
-            {detail?.mentions
+            {[...(detail?.mentions ?? []), ...(detail?.previousMentions ?? [])]
               .filter((m) => m.response_id === response.id)
               .map((m) => (
                 <blockquote key={m.brand_id}>
