@@ -74,4 +74,6 @@ AI answers render Markdown with safe links, tables and code. Copy or download th
 
 ## Planning, suggestions and multilingual reports
 
+New competitors can be compared against saved answers without another scan or API key. Choose **Current competitors** to reanalyze literal names/domains locally, or **Original brands** to inspect the original results. CSV and new reports record the selected scope; existing answers, costs and saved reports are preserved.
+
 The interface and PDF reports support French, English and Simplified Chinese, with independent report language selection. Add questions in batches, generate contextual AI suggestions, edit saved project/scan settings and retry failures within one campaign. See the [FR / EN / 中文 guide](PLANNING-AND-REPORTS.md) for behavior, budgets and evidence preservation.

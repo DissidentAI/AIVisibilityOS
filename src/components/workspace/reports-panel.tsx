@@ -7,6 +7,7 @@ import { z } from "zod";
 import { readBrowserValue, saveBrowserValue } from "@/lib/browser-storage";
 import type { Branding } from "@/lib/reports";
 import type { Project, Run, RunDetail } from "@/lib/types";
+import { comparisonScope, sameMeasurementConfiguration } from "@/lib/brand-analysis";
 type SavedReport = { id: string; title: string; created_at: string };
 export function ReportsPanel({
   project,
@@ -60,7 +61,7 @@ export function ReportsPanel({
   }, [refresh]);
   useEffect(() => {
     setPrevious("");
-  }, [detail?.run.id]);
+  }, [detail?.run.id, detail?.brandAnalysis?.brandSetHash, detail?.brandAnalysis?.scope]);
   async function action(fn: () => Promise<unknown>, success: string) {
     setBusy(true);
     setError("");
@@ -79,7 +80,7 @@ export function ReportsPanel({
     ? runs.filter(
         (r) =>
           r.id !== detail?.run.id &&
-          r.config_hash === detail?.run.config_hash &&
+          sameMeasurementConfiguration(r, detail.run, comparisonScope(detail)) &&
           r.pending === 0 &&
           r.valid === r.total &&
           new Date(r.created_at) < new Date(detail.run.created_at),
@@ -118,6 +119,7 @@ export function ReportsPanel({
                       previousRunId: previous || null,
                       locale: reportLocale,
                       notes,
+                      brandScope: comparisonScope(detail),
                     }),
                   t(
                     "Rapport enregistré. Téléchargez-le ci-dessous.",

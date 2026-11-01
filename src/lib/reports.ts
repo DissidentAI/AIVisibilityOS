@@ -5,6 +5,13 @@ import { AppError } from "./errors";
 import { comparisonSignature, mentionRate } from "./measurement";
 import { getRun, ownedProject, uuidSchema } from "./service";
 import type { RunDetail, User } from "./types";
+import {
+  brandScopeSchema,
+  comparisonBrands,
+  comparisonScope,
+  sameBrandAnalysis,
+  sameMeasurementConfiguration,
+} from "./brand-analysis";
 export type Branding = { agency_name: string; logo_data: string | null };
 export type ReportPayload = {
   version: 1;
@@ -20,7 +27,8 @@ export function comparable(a: RunDetail, b: RunDetail) {
   return (
     a.run.id !== b.run.id &&
     a.run.project_id === b.run.project_id &&
-    a.run.config_hash === b.run.config_hash &&
+    sameMeasurementConfiguration(a.run, b.run, comparisonScope(a)) &&
+    sameBrandAnalysis(a, b) &&
     signature !== null &&
     signature === comparisonSignature(b.responses) &&
     new Date(b.run.created_at) < new Date(a.run.created_at)
@@ -28,7 +36,7 @@ export function comparable(a: RunDetail, b: RunDetail) {
 }
 export function reportMetrics(detail: RunDetail) {
   const valid = new Set(detail.responses.filter((r) => r.status === "succeeded").map((r) => r.id));
-  return [...detail.run.snapshot.brands]
+  return [...comparisonBrands(detail)]
     .sort((a, b) => Number(!!b.is_primary) - Number(!!a.is_primary))
     .map((b) => {
       const count = new Set(
@@ -83,12 +91,13 @@ export async function createReport(user: User, data: unknown) {
       previousRunId: z.uuid().nullable().default(null),
       locale: z.enum(["fr", "en", "zh-CN"]),
       notes: z.string().trim().max(2000).default(""),
+      brandScope: brandScopeSchema.default("original"),
     })
     .parse(data);
-  const current = await getRun(user, p.runId);
+  const current = await getRun(user, p.runId, p.brandScope);
   if (current.run.pending) throw new AppError("report_campaign_pending", 409);
   if (!current.run.valid) throw new AppError("report_no_valid_responses", 409);
-  const previous = p.previousRunId ? await getRun(user, p.previousRunId) : null;
+  const previous = p.previousRunId ? await getRun(user, p.previousRunId, p.brandScope) : null;
   if (previous && !comparable(current, previous)) throw new AppError("report_not_comparable", 409);
   const branding = await getBranding(user);
   const payload: ReportPayload = {

@@ -38,28 +38,40 @@ export function comparisonSignature(
 }
 export type Brand = { id: string; name: string; domain: string; is_primary?: boolean };
 export function detectMentions(answer: string, brands: Brand[]) {
-  return brands.flatMap((brand) => {
-    for (const alias of [brand.name, brand.domain].filter(Boolean)) {
+  return createMentionDetector(brands)(answer);
+}
+/** Compile aliases once when examining a collection of saved responses. No global regex state. */
+export function createMentionDetector(brands: Brand[]) {
+  const patterns = brands.map((brand) => ({
+    brand,
+    aliases: [brand.name, brand.domain].filter(Boolean).map((alias) => {
       const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "iu").exec(
-        answer,
-      );
-      if (match)
-        return [
-          {
-            brandId: brand.id,
-            brandName: brand.name,
-            matchedAlias: alias,
-            excerpt: answer.slice(
-              Math.max(0, match.index - 100),
-              Math.min(answer.length, match.index + match[0].length + 160),
-            ),
-            sentiment: "not_classified",
-          },
-        ];
-    }
-    return [];
-  });
+      return {
+        alias,
+        regex: new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "iu"),
+      };
+    }),
+  }));
+  return (answer: string) =>
+    patterns.flatMap(({ brand, aliases }) => {
+      for (const { alias, regex } of aliases) {
+        const match = regex.exec(answer);
+        if (match)
+          return [
+            {
+              brandId: brand.id,
+              brandName: brand.name,
+              matchedAlias: alias,
+              excerpt: answer.slice(
+                Math.max(0, match.index - 100),
+                Math.min(answer.length, match.index + match[0].length + 160),
+              ),
+              sentiment: "not_classified",
+            },
+          ];
+      }
+      return [];
+    });
 }
 export function mentionRate(mentioned: number, valid: number) {
   if (valid === 0) return { rate: null, low: null, high: null, n: 0 };

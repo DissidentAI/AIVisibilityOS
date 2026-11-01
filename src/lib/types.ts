@@ -87,6 +87,14 @@ export type Citation = {
   provenance: string;
 };
 export type RunDetail = {
+  /** Optional derived view; run.snapshot always remains the original collection configuration. */
+  brandAnalysis?: {
+    scope: "current";
+    methodology: string;
+    evaluatedAt: string;
+    brandSetHash: string;
+    brands: Brand[];
+  };
   run: Run;
   responses: ResponseRecord[];
   mentions: Mention[];

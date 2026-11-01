@@ -18,6 +18,7 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 
 - Compte propriétaire, sessions sécurisées et onboarding français/anglais/chinois simplifié.
 - Plusieurs projets, marque principale, jusqu’à cinquante concurrents et cinquante questions par projet.
+- Nouveaux concurrents comparables aux réponses déjà collectées, sans appel IA : réanalyse locale des noms/domaines, vue d’origine conservée et exports identifiant le périmètre. [Mode d’emploi](docs/PLANNING-AND-REPORTS.md).
 - Connecteurs OpenAI, Google Gemini, Kimi, OpenRouter et **Xiaomi MiMo en direct avec votre clé Xiaomi**, clés chiffrées côté serveur. [Profils, coûts et limites](docs/PROVIDERS.md).
 - Brouillon de projet, dernier projet sélectionné et choix de campagne mémorisés dans le navigateur, séparément pour chaque compte. Aucune clé API dans le stockage local.
 - Campagnes à 1–5 échantillons par question/fournisseur, file PostgreSQL persistante et worker parallèle avec plafonds par fournisseur/modèle, marge de sécurité et pauses sur 429. [Réglages de vitesse](docs/EXECUTION.md).

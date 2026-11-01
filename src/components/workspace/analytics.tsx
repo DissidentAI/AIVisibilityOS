@@ -1,4 +1,10 @@
 "use client";
+import {
+  comparisonBrands,
+  comparisonScope,
+  sameBrandAnalysis,
+  sameMeasurementConfiguration,
+} from "@/lib/brand-analysis";
 import { useEffect, useState, type ReactNode } from "react";
 import { Activity } from "lucide-react";
 import { motion } from "motion/react";
@@ -61,7 +67,7 @@ export function Comparison({ detail, t }: { detail: RunDetail | null; t: Transla
         )}
       </Empty>
     );
-  const brands = [...detail.run.snapshot.brands].sort(
+  const brands = [...comparisonBrands(detail)].sort(
     (a, b) => Number(!!b.is_primary) - Number(!!a.is_primary),
   );
   const matching = brands.filter((b) =>
@@ -162,14 +168,20 @@ export function HistoryChart({
     let cancelled = false;
     const matches = runs
       .filter(
-        (r) => r.config_hash === detail?.run.config_hash && r.pending === 0 && r.valid === r.total,
+        (r) =>
+          detail &&
+          sameMeasurementConfiguration(r, detail.run, comparisonScope(detail)) &&
+          r.pending === 0 &&
+          r.valid === r.total,
       )
       .slice(0, 20)
       .reverse();
     Promise.all(
       matches.map(async (r) => {
-        const d = await api<RunDetail>(`runs/${r.id}`),
-          b = d.run.snapshot.brands.find((b) => b.is_primary),
+        const d = await api<RunDetail>(
+            `runs/${r.id}?brandScope=${detail ? comparisonScope(detail) : "original"}`,
+          ),
+          b = comparisonBrands(d).find((b) => b.is_primary),
           n = new Set(d.mentions.filter((m) => m.brand_id === b?.id).map((m) => m.response_id))
             .size;
         return {
@@ -177,6 +189,7 @@ export function HistoryChart({
           rate: mentionRate(n, d.run.valid).rate,
           n: d.run.valid,
           signature: comparisonSignature(d.responses),
+          sameAnalysis: !!detail && sameBrandAnalysis(d, detail),
         };
       }),
     )
@@ -186,6 +199,7 @@ export function HistoryChart({
             const next = p
               .filter(
                 (point) =>
+                  point.sameAnalysis &&
                   point.signature !== null &&
                   point.signature === comparisonSignature(detail?.responses ?? []),
               )

@@ -38,6 +38,12 @@ import { requestOptions } from "./providers";
 import { snapshotJson } from "./snapshot-json";
 import { getExecutionStatus } from "./execution-control";
 import { campaignFor, latestAttempts } from "./campaigns";
+import {
+  analyzeStoredBrands,
+  brandSetSignature,
+  brandScopeSchema,
+  type BrandScope,
+} from "./brand-analysis";
 export { projectSchema, brandSchema } from "./project-validation";
 export const uuidSchema = z.uuid();
 export function ceilingMicros() {
@@ -409,7 +415,12 @@ export async function listRuns(user: User, projectId: string): Promise<Run[]> {
   where r.project_id=${projectId} and r.org_id=${user.org_id} and r.campaign_id is null
   group by r.id,t.attempt_count,t.last_activity_at order by r.created_at desc limit 100`;
 }
-export async function getRun(user: User, id: string): Promise<RunDetail> {
+export async function getRun(
+  user: User,
+  id: string,
+  scope: BrandScope = "original",
+): Promise<RunDetail> {
+  brandScopeSchema.parse(scope);
   const run = await campaignFor(sql, user, id);
   const [responses, mentions, citations] = await Promise.all([
     sql<
@@ -430,7 +441,7 @@ export async function getRun(user: User, id: string): Promise<RunDetail> {
   ]);
   const { current, previous } = latestAttempts(responses);
   const ids = new Set(current.map((r) => r.id));
-  return {
+  const detail: RunDetail = {
     run: {
       ...run,
       total: current.length,
@@ -450,4 +461,9 @@ export async function getRun(user: User, id: string): Promise<RunDetail> {
     previousMentions: mentions.filter((m) => !ids.has(m.response_id)),
     previousCitations: citations.filter((c) => !ids.has(c.response_id)),
   };
+  if (scope === "original") return detail;
+  const brands = await sql<
+    Brand[]
+  >`select id,name,domain,is_primary from brands where project_id=${run.project_id} and org_id=${user.org_id} order by id`;
+  return analyzeStoredBrands(detail, brands, digest(brandSetSignature(brands)));
 }

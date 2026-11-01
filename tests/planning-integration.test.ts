@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, afterAll, test, expect } from "vitest";
+import { beforeAll, beforeEach, afterAll, test, expect, vi } from "vitest";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql, db } from "../src/db/client";
 import {
@@ -18,6 +18,9 @@ import { digest } from "../src/lib/security";
 import { POST, GET } from "../src/app/api/[[...path]]/route";
 import { parseSuggestions, suggestionContextSchema } from "../src/lib/suggestion-validation";
 import { MAX_COMPETITORS, PROJECT_BODY_LIMIT_BYTES } from "../src/lib/project-limits";
+import { comparisonBrands, sameBrandAnalysis } from "../src/lib/brand-analysis";
+import { createReport, getReport, reportMetrics, comparable } from "../src/lib/reports";
+import { createRetry, estimateRetry } from "../src/lib/retries";
 const base = {
   name: "Atelier Test",
   domain: "atelier.example",
@@ -86,7 +89,7 @@ function req(
       },
       body: data === undefined ? undefined : JSON.stringify(data),
     }),
-    { params: Promise.resolve({ path: path.split("/") }) },
+    { params: Promise.resolve({ path: path.split("?")[0].split("/") }) },
   );
 }
 async function editData(user: User) {
@@ -101,6 +104,204 @@ async function editData(user: User) {
 function suggestionInput(projectId: string) {
   return { projectId, provider: "openai", context: { ...base, questions: base.queries } };
 }
+async function measurementEvidence() {
+  return Promise.all(
+    [
+      "measurement_runs",
+      "ai_responses",
+      "brand_mentions",
+      "citations",
+      "usage_records",
+      "response_retries",
+      "assistant_jobs",
+      "reports",
+    ].map(
+      async (table) =>
+        sql`select to_jsonb(t) as evidence from ${sql(table)} t order by to_jsonb(t)::text`,
+    ),
+  );
+}
+test("new rivals are detected in stored valid answers with zero network calls or measurement writes", async () => {
+  const a = await setup(),
+    other = await owner("other");
+  const run = await createRun(a.user, { projectId: a.id, ...settings, samples: 3 });
+  const texts = [
+    "SYNTHETIC: Atelier Test. Nouvelle Marque, Nouvelle Marque.",
+    "SYNTHETIC: see https://nouvelle.example/product",
+    "SYNTHETIC: Nouvelle Marque (invalid answer)",
+  ];
+  for (let i = 0; i < texts.length; i++) {
+    const job = await claimJob({ unregulatedTestOnly: true });
+    await settleJob(
+      job!,
+      {
+        ...result,
+        status: i === 2 ? "invalid" : "succeeded",
+        text: texts[i],
+        citations:
+          i === 0
+            ? [
+                {
+                  url: "https://source.example/proof",
+                  domain: "source.example",
+                  title: "Synthetic source",
+                  provenance: "openai_url_annotation",
+                },
+              ]
+            : [],
+      },
+      null,
+    );
+  }
+  const original = await getRun(a.user, run.id);
+  const saved = await createReport(a.user, { runId: run.id, locale: "fr" });
+  const reportBefore = await getReport(a.user, saved.id);
+  expect(
+    (
+      await req("POST", `projects/${a.id}/brands`, "a", {
+        name: "Nouvelle Marque",
+        domain: "nouvelle.example",
+      })
+    ).status,
+  ).toBe(201);
+  const before = await measurementEvidence();
+  const fetch = vi
+    .spyOn(globalThis, "fetch")
+    .mockRejectedValue(new Error("No network allowed for reanalysis"));
+  try {
+    const current = await getRun(a.user, run.id, "current");
+    expect(comparisonBrands(current)).toHaveLength(3);
+    expect(current.run).toEqual(original.run);
+    expect(current.responses).toEqual(original.responses);
+    expect(current.citations).toEqual(original.citations);
+    const rival = reportMetrics(current).find((b) => b.name === "Nouvelle Marque")!;
+    expect(rival).toMatchObject({ mentioned: 2, n: 2, rate: 100 });
+    expect(current.mentions.filter((m) => m.brand_name === rival.name)).toHaveLength(2);
+    expect(current.mentions.some((m) => m.matched_alias === "nouvelle.example")).toBe(true);
+    expect(current.brandAnalysis).toMatchObject({
+      scope: "current",
+      methodology: "explicit-mention-v1",
+      brandSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect((await getRun(a.user, run.id)).mentions).toEqual(original.mentions);
+    expect((await getRun(a.user, run.id, "current")).mentions).toEqual(current.mentions);
+    const csv = await req("GET", `runs/${run.id}/export?brandScope=current`);
+    expect(csv.status).toBe(200);
+    expect(await csv.text()).toContain('"current"');
+    expect((await req("GET", `runs/${run.id}?brandScope=current`, "other")).status).toBe(404);
+    expect((await req("GET", `runs/${run.id}/export?brandScope=current`, "other")).status).toBe(
+      404,
+    );
+    expect((await req("GET", `runs/${run.id}?brandScope=unknown`)).status).toBe(400);
+    await expect(getRun(other, run.id, "current")).rejects.toThrow("not_found");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await measurementEvidence()).toEqual(before);
+    expect(await getReport(a.user, saved.id)).toEqual(reportBefore);
+  } finally {
+    fetch.mockRestore();
+  }
+});
+test("reanalysis uses the latest attempt per slot and keeps failed attempts separate", async () => {
+  const a = await setup();
+  const run = await createRun(a.user, { projectId: a.id, ...settings, samples: 2 });
+  const first = await claimJob({ unregulatedTestOnly: true });
+  await settleJob(first!, { ...result, text: "SYNTHETIC: Nouvelle Marque." }, null);
+  const failed = await claimJob({ unregulatedTestOnly: true });
+  await settleJob(
+    failed!,
+    { ...result, status: "invalid", text: "SYNTHETIC: Nouvelle Marque but invalid" },
+    "empty_response",
+  );
+  await req("POST", `projects/${a.id}/brands`, "a", {
+    name: "Nouvelle Marque",
+    domain: "nouvelle.example",
+  });
+  const quote = await estimateRetry(a.user, run.id, {});
+  const retry = await createRetry(a.user, run.id, { expectedQuoteHash: quote.quoteHash });
+  expect(retry.id).toBe(run.id);
+  const pending = await getRun(a.user, run.id, "current");
+  expect(pending.run).toMatchObject({ valid: 1, total: 2, pending: 1 });
+  expect(reportMetrics(pending).find((b) => b.name === "Nouvelle Marque")).toMatchObject({
+    n: 1,
+    mentioned: 1,
+  });
+  expect(pending.previousMentions).toEqual([]);
+  const job = await claimJob({ unregulatedTestOnly: true });
+  await settleJob(job!, { ...result, text: "SYNTHETIC: No tracked brand here." }, null);
+  const final = await getRun(a.user, run.id, "current");
+  expect(reportMetrics(final).find((b) => b.name === "Nouvelle Marque")).toMatchObject({
+    n: 2,
+    mentioned: 1,
+    rate: 50,
+  });
+  expect(final.previousAttempts).toHaveLength(1);
+  expect(final.responses.find((r) => r.id === first!.id)?.answer).toBe(
+    "SYNTHETIC: Nouvelle Marque.",
+  );
+  expect((await getRun(a.user, run.id)).mentions).toEqual([]);
+});
+test("current-brand reports freeze the analysis, compare equal measurements and preserve the original view after edits", async () => {
+  const a = await setup();
+  const one = await createRun(a.user, { projectId: a.id, ...settings });
+  await workOnce(
+    async () => ({ ...result, text: "SYNTHETIC: Atelier Test, Concurrent Test, Nouvelle Marque." }),
+    { unregulatedTestOnly: true },
+  );
+  const original = await getRun(a.user, one.id);
+  await req("POST", `projects/${a.id}/brands`, "a", {
+    name: "Nouvelle Marque",
+    domain: "nouvelle.example",
+  });
+  const two = await createRun(a.user, { projectId: a.id, ...settings });
+  await workOnce(async () => ({ ...result, text: "SYNTHETIC: Atelier Test, Nouvelle Marque." }), {
+    unregulatedTestOnly: true,
+  });
+  const a1 = await getRun(a.user, one.id, "current"),
+    a2 = await getRun(a.user, two.id, "current");
+  expect(a1.run.config_hash).not.toBe(a2.run.config_hash);
+  expect(comparable(a2, a1)).toBe(true);
+  expect(comparable(a2, original)).toBe(false);
+  const saved = await createReport(a.user, {
+    runId: two.id,
+    previousRunId: one.id,
+    brandScope: "current",
+    locale: "zh-CN",
+  });
+  const frozen = await getReport(a.user, saved.id);
+  expect(frozen.payload.current.brandAnalysis?.brands).toHaveLength(3);
+  expect(frozen.payload.previous?.brandAnalysis?.brandSetHash).toBe(
+    frozen.payload.current.brandAnalysis?.brandSetHash,
+  );
+  expect(frozen.payload.previous?.run.snapshot.brands).toHaveLength(2);
+  // Rename an existing rival, remove the old competitor, keep all historical rows intact.
+  const project = (await getState(a.user)).projects[0];
+  const rival = project.brands.find((b) => b.name === "Nouvelle Marque")!;
+  await updateProject(a.user, a.id, {
+    ...base,
+    revision: project.revision,
+    competitors: [{ name: "Changed Rival", domain: "changed.example" }],
+    competitorIds: [rival.id],
+    scanSettings: settings,
+  });
+  const changed = await getRun(a.user, one.id, "current");
+  expect(comparisonBrands(changed).map((b) => b.name)).toEqual(
+    expect.arrayContaining(["Atelier Test", "Changed Rival"]),
+  );
+  expect(reportMetrics(changed).find((b) => b.id === rival.id)).toMatchObject({
+    n: 1,
+    mentioned: 0,
+    rate: 0,
+  });
+  expect(sameBrandAnalysis(changed, a2)).toBe(false);
+  expect(await getRun(a.user, one.id)).toEqual(original);
+  expect(await getReport(a.user, saved.id)).toEqual(frozen);
+  const incompatible = structuredClone(a1);
+  incompatible.run.snapshot.system += " different prompt";
+  expect(comparable(a2, incompatible)).toBe(false);
+  incompatible.run.snapshot = a1.run.snapshot;
+  incompatible.responses[0].parameters.retry = { sourceRunId: one.id };
+  expect(comparable(a2, incompatible)).toBe(false);
+});
 test("fifty competitors use one shared sample and larger settings never rewrite historical evidence", async () => {
   const a = await setup();
   const before = await estimateRun(a.user, { projectId: a.id, ...settings });

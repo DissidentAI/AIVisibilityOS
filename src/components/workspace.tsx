@@ -69,6 +69,13 @@ import {
   type Translate,
 } from "./workspace/shared";
 import { Metric, Comparison, HistoryChart } from "./workspace/analytics";
+import { BrandScopeControl } from "./workspace/brand-scope";
+import {
+  brandScopeSchema,
+  comparisonBrands,
+  comparisonScope,
+  type BrandScope,
+} from "@/lib/brand-analysis";
 import { ProjectEditor } from "./workspace/project-editor";
 import { ProjectWizard } from "./workspace/project-wizard";
 import { CampaignDialog } from "./workspace/campaign-dialog";
@@ -117,6 +124,18 @@ export function Workspace() {
     >(null),
     [response, setResponse] = useState<ResponseRecord | null>(null);
   const [credentialProvider, setCredentialProvider] = useState<Provider>("openai");
+  const [brandScope, setBrandScope] = useState<BrandScope>("current");
+  const [brandScopeAccount, setBrandScopeAccount] = useState("");
+  useEffect(() => {
+    if (!state) return;
+    const key = accountStorageKey("brand-scope", state.user);
+    setBrandScope(readBrowserValue(key, brandScopeSchema).value ?? "current");
+    setBrandScopeAccount(key);
+  }, [state?.user.id, state?.user.org_id]);
+  useEffect(() => {
+    if (state && brandScopeAccount === accountStorageKey("brand-scope", state.user))
+      saveBrowserValue(brandScopeAccount, brandScope, brandScopeSchema);
+  }, [brandScopeAccount, brandScope]);
   const [returnToCampaign, setReturnToCampaign] = useState(false);
   const [retry, setRetry] = useState<{ detail: RunDetail; responseIds: string[] } | null>(null);
   const campaignPending = runs.some((r) => r.pending > 0);
@@ -133,7 +152,7 @@ export function Workspace() {
   async function openRun(id: string) {
     try {
       // A retained child may outlive its source, and the selector lists only 100 runs.
-      const d = await api<RunDetail>(`runs/${id}`);
+      const d = await api<RunDetail>(`runs/${id}?brandScope=${brandScope}`);
       setRuns((rs) => (rs.some((r) => r.id === d.run.id) ? rs : [d.run, ...rs]));
       setRunId(d.run.id);
       setDetail(d);
@@ -217,7 +236,7 @@ export function Workspace() {
     }
     let d: RunDetail;
     try {
-      d = await api<RunDetail>(`runs/${selected}`);
+      d = await api<RunDetail>(`runs/${selected}?brandScope=${brandScope}`);
     } catch (e) {
       if (seq !== activeRequest.current) return;
       if (e instanceof Error && e.message === "not_found") {
@@ -235,10 +254,12 @@ export function Workspace() {
       if (!rs.some((r) => r.id === selected)) setRuns([d.run, ...rs]);
       setDetail(d);
     }
-  }, [projectId, runId]);
+  }, [projectId, runId, brandScope, project?.revision]);
   useEffect(() => {
     setDetail((current) =>
-      current?.run.project_id === projectId && (!runId || current.run.id === runId)
+      current?.run.project_id === projectId &&
+      (!runId || current.run.id === runId) &&
+      comparisonScope(current) === brandScope
         ? current
         : null,
     );
@@ -290,7 +311,7 @@ export function Workspace() {
     { id: "usage", title: t("Consommation", "Usage & budget"), icon: Wallet },
   ] as const;
   const valid = detail?.responses.filter((r) => r.status === "succeeded") ?? [];
-  const primary = detail?.run.snapshot.brands.find((b) => b.is_primary);
+  const primary = detail ? comparisonBrands(detail).find((b) => b.is_primary) : undefined;
   const count = primary
     ? new Set(detail?.mentions.filter((m) => m.brand_id === primary.id).map((m) => m.response_id))
         .size
@@ -815,12 +836,23 @@ export function Workspace() {
                       </select>
                     </div>
                     {detail && (
-                      <a className="text-link" href={`/api/runs/${detail.run.id}/export`}>
+                      <a
+                        className="text-link"
+                        href={`/api/runs/${detail.run.id}/export?brandScope=${comparisonScope(detail)}`}
+                      >
                         <ArrowDownToLine size={15} />
                         CSV
                       </a>
                     )}
                   </div>
+                  {runs.length > 0 && !["queries", "schedules"].includes(tab) && (
+                    <BrandScopeControl
+                      scope={brandScope}
+                      onChange={setBrandScope}
+                      detail={detail}
+                      t={t}
+                    />
+                  )}
                   {detail && ["overview", "history", "opportunities"].includes(tab) && (
                     <RunStatus
                       detail={detail}
@@ -895,7 +927,7 @@ export function Workspace() {
                         <Metric
                           label={t("Marques comparées", "Brands compared")}
                           value={String(
-                            detail?.run.snapshot.brands.length ?? project.brands.length,
+                            detail ? comparisonBrands(detail).length : project.brands.length,
                           )}
                           icon={<Users size={18} />}
                           note={t(
@@ -1169,9 +1201,9 @@ export function Workspace() {
                         ))}
                         <p className="small muted competitor-scope-note">
                           {t(
-                            "Les nouvelles marques seront comparées à partir du prochain scan. La campagne affichée conserve les marques suivies lors de sa création.",
-                            "New brands are compared from the next scan. The displayed campaign keeps the brands tracked when it was created.",
-                            "新品牌将从下次扫描开始参与比较。当前活动保留创建时跟踪的品牌。",
+                            "Ajoutez un concurrent pour le comparer aux réponses déjà enregistrées dans la vue « Concurrents actuels ». Aucun nouvel appel IA. La vue d’origine reste accessible.",
+                            "Add a competitor to compare it with saved answers in the Current competitors view. No new AI calls. The original view remains available.",
+                            "添加竞争对手后，可在“当前竞争对手”视图中与已保存的回答比较。无需新的 AI 调用，原始视图始终可用。",
                           )}
                         </p>
                       </section>
@@ -1736,6 +1768,7 @@ export function Workspace() {
           <CompetitorDialog
             project={project}
             state={state}
+            hasMeasurements={runs.length > 0}
             t={t}
             busy={busy}
             onClose={() => setModal(null)}
@@ -1763,6 +1796,7 @@ export function Workspace() {
                   await api("account", "DELETE", Object.fromEntries(f));
                   clearBrowserValue(accountStorageKey("project-draft", state.user));
                   clearBrowserValue(accountStorageKey("workspace", state.user));
+                  clearBrowserValue(accountStorageKey("brand-scope", state.user));
                   for (const project of state.projects)
                     clearBrowserValue(accountStorageKey("campaign", state.user, project.id));
                   setModal(null);
@@ -1880,6 +1914,7 @@ export function Workspace() {
                     parameters: response.parameters,
                     system: detail?.run.snapshot.system,
                     configuration: detail?.run.config_hash,
+                    brandAnalysis: detail?.brandAnalysis ?? { scope: "original" },
                   },
                   null,
                   2,

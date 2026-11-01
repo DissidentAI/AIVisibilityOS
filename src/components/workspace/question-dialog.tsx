@@ -86,6 +86,7 @@ export function CompetitorDialog({
   busy,
   onClose,
   onSave,
+  hasMeasurements = false,
 }: {
   project: Project;
   state: State;
@@ -93,11 +94,21 @@ export function CompetitorDialog({
   busy: boolean;
   onClose: () => void;
   onSave: (brand: { name: string; domain: string }) => void;
+  hasMeasurements?: boolean;
 }) {
   const [name, setName] = useState(""),
     [domain, setDomain] = useState("");
   return (
     <Modal title={t("Ajouter un concurrent", "Add a competitor")} onClose={onClose}>
+      {hasMeasurements && (
+        <p className="small muted">
+          {t(
+            "Ce concurrent sera recherché dans vos réponses enregistrées, sans appel IA. Les suggestions IA ci-dessous ne sont générées que si vous les demandez.",
+            "This competitor will be checked in your saved answers without an AI call. AI suggestions below are generated only on request.",
+            "系统将在已保存的回答中查找此竞争对手，无需 AI 调用。下方的 AI 建议仅在您主动请求时生成。",
+          )}
+        </p>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -131,7 +142,7 @@ export function CompetitorDialog({
         t={t}
         kind="competitors"
         filter={name}
-        automatic
+        automatic={!hasMeasurements}
         onCompetitor={(c) => {
           setName(c.name);
           setDomain(c.domain ?? "");

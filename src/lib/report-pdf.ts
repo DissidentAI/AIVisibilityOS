@@ -238,6 +238,19 @@ export async function renderReport(payload: ReportPayload, reportId: string): Pr
       "所有品牌均采用相同的有效回答样本。一条回答可以提及多个品牌。",
     ),
   );
+  if (detail.brandAnalysis)
+    callout(
+      t(
+        "Concurrents actuels · réponses enregistrées",
+        "Current competitors · saved answers",
+        "当前竞争对手 · 已保存的回答",
+      ),
+      t(
+        `Les noms et domaines actuels ont été recherchés dans les textes collectés le ${date(detail.run.created_at)}. Réanalyse locale le ${date(detail.brandAnalysis.evaluatedAt)}, sans nouvel appel IA. Les réponses et les résultats d’origine sont conservés. Une absence de mention concerne ces textes, pas une nouvelle réponse de l’IA.`,
+        `Current names and domains were checked in texts collected on ${date(detail.run.created_at)}. Locally reanalyzed on ${date(detail.brandAnalysis.evaluatedAt)}, with no new AI calls. Original answers and results are preserved. An absent mention concerns these texts, not a new AI answer.`,
+        `在 ${date(detail.run.created_at)} 采集的文本中查找当前名称和域名。于 ${date(detail.brandAnalysis.evaluatedAt)} 本地重新分析，未进行新的 AI 调用。原始回答和结果保持不变。未提及仅指这些文本，不是新的 AI 回答。`,
+      ),
+    );
   for (const m of metrics) {
     const labelH = height(m.name, 12, 340, true),
       h = labelH + 62;
@@ -396,6 +409,12 @@ export async function renderReport(payload: ReportPayload, reportId: string): Pr
       "提及率 = 100 × 明确提及品牌的有效回答数 ÷ 有效回答总数。每条回答中，每个品牌最多计数一次。Visibility Score 使用相同公式。",
     ),
   );
+  if (detail.brandAnalysis)
+    paragraph(
+      `${t("Réanalyse locale", "Local reanalysis", "本地重新分析")} · ${detail.brandAnalysis.methodology}\n${t("Liste des marques (SHA256)", "Brand set (SHA256)", "品牌列表（SHA256）")} ${detail.brandAnalysis.brandSetHash}`,
+      8,
+      colors.muted,
+    );
   for (const [label, value] of [
     [
       t("Canal", "Channel", "渠道"),

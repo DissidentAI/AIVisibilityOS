@@ -41,6 +41,16 @@ Une marque est comptée une fois par réponse au maximum, indépendamment du nom
 
 Le contexte/sentiment est `not_classified` dans ce MVP. Les extraits permettent une lecture humaine. Les caractéristiques positives/négatives ne sont pas encore classifiées automatiquement ; aucun zéro ou « neutre » fictif n’est affiché.
 
+### Réanalyse des concurrents sur des réponses déjà collectées
+
+La vue **Concurrents actuels** applique la même détection littérale `explicit-mention-v1` aux marques actuellement configurées et aux réponses enregistrées ayant le statut `succeeded`. Elle ne contacte aucun fournisseur, ne crée aucune campagne/tentative et ne modifie ni texte, ni coût, ni date de collecte, ni `brand_mentions` historique. Les dernières tentatives déterminent toujours le dénominateur ; les tentatives antérieures restent séparées. Les citations ne sont pas réinterprétées.
+
+Le `run.snapshot` et son `config_hash` représentent toujours la collecte d’origine. Le champ facultatif `brandAnalysis` décrit séparément la vue dérivée : `scope`, `methodology`, `evaluatedAt`, `brandSetHash` et `brands`. Le hash est le SHA256 de la sérialisation canonique des identifiants, noms, domaines et marque principale, triés par identifiant. Une lecture ultérieure peut donc refléter une édition récente des marques. Les PDF/JSON enregistrés figent cette interprétation ; les anciens rapports restent inchangés. Le CSV conserve aussi `original_brands`, `analyzed_brands`, `brand_scope`, `analysis_methodology`, `analysis_date` et `analysis_brand_set_hash`.
+
+`GET /api/runs/:id?brandScope=current` et son export `/export?brandScope=current` activent cette vue après contrôle d’appartenance. L’API conserve `original` par défaut pour les clients existants. `POST /api/reports` accepte `brandScope` ; l’interface transmet la vue choisie. Aucun nouveau stockage de mesure ni migration n’est nécessaire.
+
+Une comparaison temporelle dans la vue actuelle exige la même liste de marques et la même méthode d’analyse. Elle peut neutraliser uniquement le champ `snapshot.brands` ; toutes les autres propriétés de l’instantané doivent être identiques, ainsi que les signatures de réponses (questions, modèles réellement retournés, fournisseurs d’exécution). Les campagnes incomplètes ou avec reprises restent exclues. Un concurrent absent de ces textes ne signifie pas qu’il serait absent d’une nouvelle réponse ou des interfaces grand public.
+
 Si n=0, le taux est `null` (interface : « — »). Wilson 95 %, z=1.96 :
 
 ```text
@@ -86,4 +96,4 @@ Un 401 indique un refus d’authentification avant inférence : son coût est nu
 
 Les programmations capturent questions, marques, paramètres et tarifs à l’enregistrement. La cadence est de 24 ou 168 heures UTC, sans dérive horaire locale masquée. Une échéance ancienne ne déclenche qu’une campagne ; les créneaux omis sont comptés dans le journal. Budget insuffisant, clé absente ou campagne déjà active sur le même projet produisent un événement ignoré, sans appels ni réservations partiels. Deux projets peuvent avoir des campagnes en file simultanément, tout en partageant les plafonds organisation et installation.
 
-Les rapports figent la campagne, la comparaison éventuelle, le logo, le nom de l’agence et son commentaire. La comparaison nécessite une campagne précédente du même projet, le même hash et les mêmes modèles réellement retournés, sans réponse invalide. Les écarts sont descriptifs. Le PDF inclut les métriques, n, la méthode, les paramètres, toutes les questions et jusqu’à 20 extraits de mention explicitement présentés comme une sélection. Le dossier JSON joint conserve l’ensemble des réponses et citations. Il reste vérifiable après expiration de la campagne d’origine, jusqu’à expiration ou suppression du rapport lui-même.
+Les rapports figent la campagne, la comparaison éventuelle, le logo, le nom de l’agence et son commentaire. La comparaison nécessite une campagne précédente du même projet, une configuration compatible dans le périmètre choisi (voir la réanalyse ci-dessus) et les mêmes modèles réellement retournés, sans réponse invalide ni reprise. Les écarts sont descriptifs. Le PDF inclut les métriques, n, la méthode, les paramètres, toutes les questions et jusqu’à huit extraits issus de réponses distinctes, explicitement présentés comme une sélection. Le dossier JSON joint conserve l’ensemble des réponses et citations. Il reste vérifiable après expiration de la campagne d’origine, jusqu’à expiration ou suppression du rapport lui-même.

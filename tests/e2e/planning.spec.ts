@@ -95,13 +95,14 @@ test("bulk and AI questions, contextual competitors, saved editable settings and
   await dialog.getByRole("button", { name: "Ajouter les questions", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await navigate(page, "Concurrents");
-  const auto = page.waitForResponse(
+  const suggestions = page.waitForResponse(
     (r) => r.url().endsWith("/api/suggestions") && r.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Ajouter", exact: true }).click();
-  expect((await auto).status()).toBe(202);
-  await worker("suggestion-worker");
   dialog = page.getByRole("dialog", { name: "Ajouter un concurrent", exact: true });
+  await dialog.getByRole("button", { name: "Générer avec l’IA", exact: true }).click();
+  expect((await suggestions).status()).toBe(202);
+  await worker("suggestion-worker");
   await expect(dialog.locator(".suggestion-item")).toHaveCount(2);
   await dialog.getByLabel("Nom de la marque", { exact: true }).fill("Concurrent IA");
   await expect(dialog.locator(".suggestion-item")).toHaveCount(1);

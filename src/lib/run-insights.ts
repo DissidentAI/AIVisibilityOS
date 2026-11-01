@@ -1,4 +1,5 @@
 import type { ResponseRecord, RunDetail } from "./types";
+import { comparisonBrands } from "./brand-analysis";
 export function allAttempts(detail: RunDetail) {
   return [...detail.responses, ...(detail.previousAttempts ?? [])];
 }
@@ -33,7 +34,8 @@ export function retrySource(detail: RunDetail) {
 }
 // Descriptive editorial leads, not a causal SEO audit or an AI-generated recommendation.
 export function editorialOpportunities(detail: RunDetail) {
-  const primary = detail.run.snapshot.brands.find((b) => b.is_primary);
+  const brands = comparisonBrands(detail);
+  const primary = brands.find((b) => b.is_primary);
   if (!primary) return [];
   return detail.run.snapshot.queries.flatMap((query) => {
     const valid = detail.responses.filter(
@@ -46,7 +48,7 @@ export function editorialOpportunities(detail: RunDetail) {
           .map((m) => m.response_id),
       );
     const own = idsFor(primary.id);
-    const competitors = detail.run.snapshot.brands
+    const competitors = brands
       .filter((b) => !b.is_primary)
       .map((b) => ({ brand: b, ids: idsFor(b.id) }))
       .sort((a, b) => b.ids.size - a.ids.size || a.brand.name.localeCompare(b.brand.name));

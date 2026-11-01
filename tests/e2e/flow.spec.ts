@@ -37,10 +37,24 @@ test("real browser: Karburo, cost preview, schedules, branded PDF, web evidence,
   await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
   await page.getByLabel("Adresse e-mail").fill("owner@example.com");
   await page.getByLabel("Mot de passe", { exact: true }).fill("e2e-fixture-password");
-  await page.getByLabel("Code d’installation").fill("e2e-fixture-bootstrap-not-production");
-  await page.getByRole("button", { name: "Créer mon espace" }).click();
+  if ((await page.request.get("/api/auth/status").then((r) => r.json())).setupRequired) {
+    await page.getByLabel("Code d’installation").fill("e2e-fixture-bootstrap-not-production");
+    await page.getByRole("button", { name: "Créer mon espace" }).click();
+  } else await page.getByRole("button", { name: "Se connecter", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Vue d’ensemble" })).toBeVisible();
-  await page.getByRole("button", { name: "Configurer mon premier projet" }).click();
+  // Scenarios may run in different browser-worker groups; do not assume this test registers first.
+  const existing = await page.request.get("/api/state").then((r) => r.json());
+  for (const c of existing.credentials)
+    await page.request.delete(`/api/credentials/${c.provider}`, {
+      headers: { origin: "http://127.0.0.1:3100" },
+    });
+  await page.reload();
+  await page
+    .getByRole("button", {
+      name: existing.projects.length ? "Nouveau projet" : "Configurer mon premier projet",
+      exact: true,
+    })
+    .click();
   await page.getByLabel("Nom de votre marque").fill("Karburo");
   await page.getByLabel("Domaine web").fill("karburo.example");
   await page.getByLabel("Secteur d’activité").fill("comparaison des prix des carburants");

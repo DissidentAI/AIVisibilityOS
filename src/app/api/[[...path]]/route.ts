@@ -1,6 +1,7 @@
 import { requestSuggestions, getSuggestions } from "@/lib/suggestions";
 import { updateProject, saveScanSettings, addQuestions } from "@/lib/project-settings";
 import { z } from "zod";
+import { brandScopeSchema, comparisonBrands, comparisonScope } from "@/lib/brand-analysis";
 import { sql } from "@/db/client";
 import { AppError } from "@/lib/errors";
 import { ProjectValidationError } from "@/lib/project-validation";
@@ -342,7 +343,8 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
       (path.length === 2 || (path.length === 3 && path[2] === "export")) &&
       method === "GET"
     ) {
-      const result = await getRun(user, path[1]);
+      const scope = brandScopeSchema.parse(url.searchParams.get("brandScope") ?? "original");
+      const result = await getRun(user, path[1], scope);
       if (path[2] === "export") {
         const currentIds = new Set(result.responses.map((r) => r.id));
         const rows = allAttempts(result).map((r) => ({
@@ -352,6 +354,13 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           campaign_date: result.run.created_at,
           config_hash: result.run.config_hash,
           methodology: result.run.snapshot.methodology,
+          brand_scope: comparisonScope(result),
+          analysis_methodology:
+            result.brandAnalysis?.methodology ?? result.run.snapshot.methodology,
+          analysis_date: result.brandAnalysis?.evaluatedAt ?? null,
+          analysis_brand_set_hash: result.brandAnalysis?.brandSetHash ?? null,
+          analyzed_brands: comparisonBrands(result),
+          original_brands: result.run.snapshot.brands,
           language: result.run.snapshot.project.language,
           country_context: result.run.snapshot.project.country,
           country_mode: "prompt_context_only",
