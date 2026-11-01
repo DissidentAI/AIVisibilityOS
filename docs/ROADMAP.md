@@ -1,16 +1,18 @@
 # Périmètre livré et suites
 
+Priorités issues du [dernier audit produit et responsive](AUDIT-PRODUIT-UX-2026-11-01.md) : accès direct aux preuves, organisation des questions, suivi des actions et historique navigable.
+
 ## Phase 1 — Community MVP
 
-Implémentés : structure Next.js, migrations PostgreSQL/Drizzle, propriétaire et sessions, projets/marques/concurrents/questions, OpenAI/Gemini, campagne persistante, réponses/coûts/mentions, tableaux de bord sans fixtures, comparaison historique à configuration égale, CSV, export/suppression de données et configuration Docker/HTTPS. La validation réelle de clés fournisseur reste distincte des tests simulés ; consulter VALIDATION.md.
+Implémentés : structure Next.js, migrations PostgreSQL/Drizzle, propriétaire et sessions, projets/marques/concurrents/questions, OpenAI/Gemini/Kimi/OpenRouter/Xiaomi MiMo, campagne persistante, réponses/coûts/mentions, tableaux de bord sans fixtures, comparaison historique à configuration égale, CSV, export/suppression de données et configuration Docker/HTTPS. La validation réelle de clés fournisseur reste distincte des tests simulés ; consulter VALIDATION.md.
 
 ## Phase 2 — Workflows agences livrés, à valider avec dix agences
 
 - Planification PostgreSQL persistante : cadence 24/168 h, configuration figée, pause/reprise, unicité des occurrences, aucun rattrapage massif, plafonds communs avec les campagnes manuelles et journal des échéances ignorées.
-- Rapports PDF à la demande en français/anglais, nom/logo validé, comparaison avant/après à configuration et modèles réellement retournés identiques, dossier JSON de preuves et historique de rapports figés. Les téléchargements sont authentifiés.
-- Mode recherche web via les outils officiels OpenAI/Gemini, métadonnées conservées, liens d’attribution et suggestions Google isolées ; aperçu du budget avant lancement ou planification.
+- Rapports PDF à la demande en français/anglais/chinois simplifié, nom/logo validé, comparaison avant/après à configuration et modèles réellement retournés identiques, dossier JSON de preuves et historique de rapports figés. Les téléchargements sont authentifiés.
+- Mode recherche web via les outils officiels des fournisseurs compatibles (voir PROVIDERS.md), métadonnées conservées, liens d’attribution et suggestions Google isolées ; aperçu du budget avant lancement ou planification.
 - Restent à valider avec les agences : envoi automatique des rapports, partage temporaire, édition de modèles de rapports et espaces clients collaboratifs.
-- Reprise ciblée des échecs avec conservation des tentatives, estimation supplémentaire et anti-doublon ; historique filtrable et diagnostic des incidents. Opportunités éditoriales descriptives reliées aux preuves, sans crawl. Voir [l’audit et ses priorités](AUDIT-2026-11-01.md).
+- Reprise ciblée des échecs regroupée dans la campagne d’origine, avec conservation des tentatives, estimation supplémentaire et anti-doublon ; historique filtrable et diagnostic des incidents. Opportunités éditoriales descriptives reliées aux preuves, sans crawl. Relecture locale des concurrents actuels sur les réponses conservées, sans nouveaux appels IA. Voir [l’audit et ses priorités](AUDIT-PRODUIT-UX-2026-11-01.md).
 
 ### Suites non livrées
 

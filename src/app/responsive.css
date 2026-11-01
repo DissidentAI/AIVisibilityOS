@@ -1,0 +1,342 @@
+/* Layout invariants shared by every workspace page. Do not hide overflowing controls. */
+.content {
+  container-type: inline-size;
+  container-name: workspace;
+}
+.btn {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.btn-icon {
+  flex: 0 0 44px;
+  width: 44px;
+  min-height: 44px;
+}
+.scopebar {
+  flex-wrap: wrap;
+}
+.project-picker {
+  flex: 1 1 240px;
+  max-width: 100%;
+}
+.project-picker select {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+.scope-actions {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.card-heading,
+.suggestion-heading {
+  flex-wrap: wrap;
+}
+.card-heading > div,
+.page-heading > div,
+.form-grid > *,
+.integration-row .grow,
+.modal-title h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.language-select {
+  flex: 0 0 auto;
+  width: 116px;
+  min-height: 44px;
+}
+.topbar-right {
+  flex-shrink: 0;
+}
+.metric-value {
+  overflow-wrap: normal;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(24px, 2.5vw, 36px);
+}
+.execution-settings > p,
+.execution-row {
+  margin-inline: 24px;
+}
+.execution-row summary > span:first-child {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.table-scroll {
+  min-width: 0;
+}
+.table-scroll-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  margin: 0;
+  border-block: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 12px;
+}
+.table-wrap:focus-visible {
+  outline-offset: -3px;
+}
+.table-wrap {
+  overscroll-behavior-x: contain;
+}
+.table-wrap .btn {
+  min-width: max-content;
+  white-space: nowrap;
+}
+.text-link {
+  min-height: 44px;
+  align-items: center;
+}
+.modal {
+  scroll-padding-block: 24px 90px;
+  overscroll-behavior-y: contain;
+}
+.modal-title {
+  align-items: flex-start;
+}
+.modal-actions {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.suggestion-controls .field {
+  min-width: min(160px, 100%);
+}
+.history-filters,
+.audit-config {
+  min-width: 0;
+}
+/* Container width also accounts for a sidebar and enlarged content, unlike viewport alone. */
+@container workspace (max-width: 700px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container workspace (max-width: 400px) {
+  .stats-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 1100px) {
+  .scope-actions {
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .scope-actions .badge {
+    display: none;
+  }
+  .scope-actions .btn {
+    width: 100%;
+  }
+  .analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .brand-scope-panel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .page-heading {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 760px) {
+  .btn,
+  .opportunity-evidence .btn,
+  .history-results .btn,
+  .answer-modes button {
+    min-height: 44px;
+  }
+  .project-picker {
+    flex-basis: auto;
+    width: 100%;
+  }
+  .scope-actions {
+    flex-basis: auto;
+  }
+  .topbar-right .btn-icon,
+  .topbar-left .btn-icon {
+    width: 44px;
+    min-height: 44px;
+  }
+  .topbar-right {
+    gap: 4px;
+  }
+  /* Keep controls at 16px to avoid automatic focus zoom in mobile Safari. */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea,
+  .project-picker select,
+  .section-toolbar select,
+  .history-filters select {
+    font-size: 16px;
+    min-height: 46px;
+  }
+  .section-toolbar > .inline {
+    flex-wrap: wrap;
+  }
+  .section-toolbar .select-subtle {
+    font-size: 16px;
+    width: 100%;
+    max-width: 100%;
+  }
+  .metric-value {
+    font-size: 28px;
+    letter-spacing: -1px;
+  }
+  .metric p,
+  .metric small,
+  .card-heading p,
+  .disclosure {
+    font-size: 12px;
+  }
+  .execution-settings > p,
+  .execution-row {
+    margin-inline: 18px;
+  }
+  .modal-actions > .btn {
+    flex: 1 1 150px;
+  }
+}
+@media (max-width: 640px) {
+  .stacked-table .btn {
+    min-width: 0;
+    white-space: normal;
+  }
+  .stacked-table,
+  .stacked-table tbody,
+  .stacked-table tr,
+  .stacked-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .stacked-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .stacked-table tr {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .stacked-table td {
+    padding: 6px 0;
+    border: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .stacked-table td[data-label] {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .stacked-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--muted);
+  }
+  .stacked-table .stacked-title {
+    font-weight: 600;
+    padding-bottom: 12px;
+  }
+  .stacked-actions .inline {
+    flex-wrap: wrap;
+    gap: 12px 20px;
+  }
+}
+@media (max-width: 540px) {
+  .auth-screen {
+    padding-top: 156px;
+  }
+  .auth-controls {
+    top: 82px;
+    inset-inline: 20px;
+    width: auto;
+    display: grid;
+    grid-template-columns: 44px 44px 116px;
+    justify-content: end;
+    gap: 4px;
+  }
+  .auth-controls .btn-icon {
+    width: 44px;
+  }
+  .auth-controls .language-select {
+    font-size: 16px;
+    min-height: 46px;
+  }
+  /* The full page title remains immediately below the toolbar. */
+  .topbar-left strong {
+    display: none;
+  }
+  .scope-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .history-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .history-filters .field:first-child {
+    grid-column: auto;
+  }
+  .comparison-row {
+    flex-wrap: wrap;
+  }
+  .comparison-row strong {
+    flex-basis: 100%;
+  }
+  .integration-row > .grow {
+    min-width: 0;
+    flex-basis: calc(100% - 50px);
+  }
+  .execution-row summary {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .execution-row summary > span:first-child {
+    flex-basis: calc(100% - 30px);
+  }
+  .execution-row summary::after {
+    order: -1;
+  }
+}
+@media (max-width: 380px) {
+  .stats-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .metric {
+    padding: 20px;
+  }
+  .metric-label {
+    min-height: 0;
+    font-size: 12px;
+  }
+  .metric-value {
+    font-size: 32px;
+    margin-block: 10px;
+  }
+}
+@media (max-height: 500px) {
+  .topbar {
+    position: relative;
+    top: 0;
+  }
+  .modal {
+    max-height: calc(100dvh - 16px);
+    margin-block: 8px;
+  }
+  .modal-actions {
+    position: static;
+  }
+}

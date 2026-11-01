@@ -14,28 +14,11 @@ import { X, Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
-import { isProjectIssue, type ProjectIssue } from "@/lib/project-validation";
+export { api, ApiError, isAborted } from "@/lib/client-api";
 import { PROVIDERS, PROVIDER_LABELS } from "@/lib/provider-config";
 import { MAX_COMPETITORS } from "@/lib/project-limits";
 export type Translate = (fr: string, en: string, zh?: string) => string;
 export const ModalError = createContext("");
-export class ApiError extends Error {
-  readonly issues: ProjectIssue[];
-  constructor(code: string, issues?: unknown) {
-    super(code);
-    this.issues = Array.isArray(issues) ? issues.filter(isProjectIssue).slice(0, 60) : [];
-  }
-}
-export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
-  const res = await fetch(`/api/${path}`, {
-    method,
-    headers: data === undefined ? {} : { "Content-Type": "application/json" },
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
-  const result = await res.json();
-  if (!res.ok) throw new ApiError(result.error ?? "internal_error", result.issues);
-  return result;
-}
 export function Modal({
   title,
   children,
@@ -205,6 +188,16 @@ export function friendly(code: string, t: Translate) {
       `暂时无法验证 ${PROVIDER_LABELS[provider]}。未启动扫描，请稍后重试。`,
     );
   const errors: Record<string, string> = {
+    network_unavailable: t(
+      "Connexion interrompue. Vérifiez votre réseau puis actualisez la page. Une action déjà envoyée peut avoir été enregistrée.",
+      "Connection interrupted. Check your network, then refresh. An action already sent may have been saved.",
+      "连接中断。请检查网络并刷新页面。已发送的操作可能已保存。",
+    ),
+    invalid_server_response: t(
+      "Le serveur a renvoyé une réponse inattendue. Actualisez la page pour vérifier le résultat de votre action.",
+      "The server returned an unexpected response. Refresh the page to check the result of your action.",
+      "服务器返回了意外响应。请刷新页面以检查操作结果。",
+    ),
     project_changed: t(
       "Le projet a changé depuis l’ouverture. Rouvrez l’éditeur pour éviter d’écraser une autre modification.",
       "The project changed since opening. Reopen the editor to avoid overwriting another change.",

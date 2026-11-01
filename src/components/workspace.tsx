@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./workspace/table-scroll";
 import { translator, localeOf, intlLocale, type Locale } from "@/lib/i18n";
 import { QuestionDialog, CompetitorDialog } from "./workspace/question-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -60,6 +61,7 @@ import { mentionRate, servingProvider } from "@/lib/measurement";
 import type { State, Run, RunDetail, ResponseRecord } from "@/lib/types";
 import {
   api,
+  isAborted,
   Modal,
   Field,
   Empty,
@@ -183,8 +185,9 @@ export function Workspace() {
       // Browser storage is optional; settings still work for this visit.
     }
   }, [lang, dark, preferencesReady]);
-  const refresh = useCallback(async () => {
-    const s = await api<State>("state");
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const s = await api<State>("state", "GET", undefined, signal);
+    if (signal?.aborted) return;
     setState(s);
     const saved = readBrowserValue(
       accountStorageKey("workspace", s.user),
@@ -207,54 +210,74 @@ export function Workspace() {
       );
   }, [state?.user.id, state?.user.org_id, project?.id]);
   useEffect(() => {
-    refresh()
+    const controller = new AbortController();
+    refresh(controller.signal)
       .catch(async (e) => {
+        if (isAborted(e)) return;
         if (e.message === "unauthenticated") {
-          const s = await api<{ setupRequired: boolean }>("auth/status");
+          const s = await api<{ setupRequired: boolean }>(
+            "auth/status",
+            "GET",
+            undefined,
+            controller.signal,
+          );
           setSetup(s.setupRequired);
         } else setError(e.message);
       })
-      .catch(() => setError("internal_error"))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!isAborted(e)) setError(e.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [refresh]);
-  const refreshRuns = useCallback(async () => {
-    if (!projectId) {
-      setRuns([]);
-      setDetail(null);
-      return;
-    }
-    const seq = ++activeRequest.current;
-    const rs = await api<Run[]>(`runs?project=${projectId}`);
-    if (seq !== activeRequest.current) return;
-    setRuns(rs);
-    // A retry contains only failed slots. Opening it by default hides the original
-    // successful answers, including after a browser reload.
-    const selected = runId || (rs.find((r) => !r.snapshot.parameters.retry) ?? rs[0])?.id;
-    if (!selected) {
-      setDetail(null);
-      return;
-    }
-    let d: RunDetail;
-    try {
-      d = await api<RunDetail>(`runs/${selected}?brandScope=${brandScope}`);
-    } catch (e) {
-      if (seq !== activeRequest.current) return;
-      if (e instanceof Error && e.message === "not_found") {
-        setRunId("");
+  const refreshRuns = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!projectId) {
+        setRuns([]);
         setDetail(null);
         return;
       }
-      throw e;
-    }
-    if (seq === activeRequest.current) {
-      if (d.run.project_id !== projectId) {
-        setRunId("");
+      const seq = ++activeRequest.current;
+      const rs = await api<Run[]>(`runs?project=${projectId}`, "GET", undefined, signal);
+      if (seq !== activeRequest.current) return;
+      setRuns(rs);
+      // A retry contains only failed slots. Opening it by default hides the original
+      // successful answers, including after a browser reload.
+      const selected = runId || (rs.find((r) => !r.snapshot.parameters.retry) ?? rs[0])?.id;
+      if (!selected) {
+        setDetail(null);
         return;
       }
-      if (!rs.some((r) => r.id === selected)) setRuns([d.run, ...rs]);
-      setDetail(d);
-    }
-  }, [projectId, runId, brandScope, project?.revision]);
+      let d: RunDetail;
+      try {
+        d = await api<RunDetail>(
+          `runs/${selected}?brandScope=${brandScope}`,
+          "GET",
+          undefined,
+          signal,
+        );
+      } catch (e) {
+        if (seq !== activeRequest.current) return;
+        if (e instanceof Error && e.message === "not_found") {
+          setRunId("");
+          setDetail(null);
+          return;
+        }
+        throw e;
+      }
+      if (seq === activeRequest.current) {
+        if (d.run.project_id !== projectId) {
+          setRunId("");
+          return;
+        }
+        if (!rs.some((r) => r.id === selected)) setRuns([d.run, ...rs]);
+        setDetail(d);
+      }
+    },
+    [projectId, runId, brandScope, project?.revision],
+  );
   useEffect(() => {
     setDetail((current) =>
       current?.run.project_id === projectId &&
@@ -263,17 +286,37 @@ export function Workspace() {
         ? current
         : null,
     );
-    refreshRuns().catch((e) => setError(e.message));
+    const controller = new AbortController();
+    refreshRuns(controller.signal).catch((e) => {
+      if (!isAborted(e)) setError(e.message);
+    });
     return () => {
+      controller.abort();
       activeRequest.current++;
     };
   }, [refreshRuns]);
   useEffect(() => {
     if (!state) return;
-    const timer = setInterval(() => {
-      Promise.all([refresh(), refreshRuns()]).catch((e) => setError(e.message));
-    }, 8000);
-    return () => clearInterval(timer);
+    const controller = new AbortController();
+    let polling = false;
+    const poll = async () => {
+      if (document.hidden || polling || controller.signal.aborted) return;
+      polling = true;
+      try {
+        await Promise.all([refresh(controller.signal), refreshRuns(controller.signal)]);
+      } catch (e) {
+        if (!isAborted(e)) setError(e instanceof Error ? e.message : "internal_error");
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = setInterval(poll, 8000);
+    document.addEventListener("visibilitychange", poll);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", poll);
+    };
   }, [state?.user.id, refresh, refreshRuns]);
   async function act(
     action: () => Promise<unknown>,
@@ -550,7 +593,8 @@ export function Workspace() {
           ref={sidebarRef}
           id="workspace-navigation"
           className={`sidebar ${mobile ? "sidebar-open" : ""}`}
-          role={isMobile ? "dialog" : undefined}
+          role={isMobile && mobile ? "dialog" : undefined}
+          aria-hidden={isMobile && !mobile ? true : undefined}
           aria-modal={isMobile && mobile ? true : undefined}
           aria-label={t("Navigation principale", "Main navigation")}
         >
@@ -583,7 +627,6 @@ export function Workspace() {
             {nav.map((item) => (
               <button
                 key={item.id}
-                aria-label={item.title}
                 className={`nav-item ${tab === item.id ? "active" : ""} ${item.id === "settings" ? "nav-separated" : ""}`}
                 aria-current={tab === item.id ? "page" : undefined}
                 onClick={() => {
@@ -606,7 +649,9 @@ export function Workspace() {
                 <item.icon size={18} />
                 <span className="nav-title">{item.title}</span>
                 {item.id === "queries" && project && (
-                  <span className="nav-count">{project.queries.length}</span>
+                  <span className="nav-count" aria-hidden="true">
+                    {project.queries.length}
+                  </span>
                 )}
               </button>
             ))}
@@ -1006,8 +1051,11 @@ export function Workspace() {
                           <span className="badge">OFFICIAL API</span>
                         </div>
                         {detail ? (
-                          <div className="table-wrap">
-                            <table>
+                          <TableScroll
+                            label={t("Détail par fournisseur", "Provider breakdown", "供应商详情")}
+                            t={t}
+                          >
+                            <table className="stacked-table">
                               <thead>
                                 <tr>
                                   <th>{t("Fournisseur / modèle", "Provider / model")}</th>
@@ -1030,17 +1078,19 @@ export function Workspace() {
                                     ).size;
                                   return (
                                     <tr key={pr}>
-                                      <td>
+                                      <td className="stacked-title">
                                         <strong>{PROVIDER_LABELS[pr]}</strong>
                                         <small className="block muted mono">
                                           {detail.run.snapshot.models[pr]}
                                         </small>
                                       </td>
-                                      <td>{rows.length}</td>
-                                      <td>
+                                      <td data-label={t("Réponses valides", "Valid responses")}>
+                                        {rows.length}
+                                      </td>
+                                      <td data-label={t("Mentions de la marque", "Brand mentions")}>
                                         {n} / {rows.length}
                                       </td>
-                                      <td>
+                                      <td data-label={t("Taux observé", "Observed rate")}>
                                         {rows.length
                                           ? `${((100 * n) / rows.length).toFixed(1)}%`
                                           : "—"}
@@ -1050,7 +1100,7 @@ export function Workspace() {
                                 })}
                               </tbody>
                             </table>
-                          </div>
+                          </TableScroll>
                         ) : (
                           <Empty title={t("Les preuves commencent ici", "Evidence starts here")}>
                             {t(
@@ -1079,10 +1129,26 @@ export function Workspace() {
                             ? `${t("Intervalle de Wilson à 95 %", "95% Wilson interval")} : ${metric.low.toFixed(1)}–${metric.high!.toFixed(1)} %. `
                             : ""}
                           {t(
-                            "L’intervalle décrit l’incertitude d’échantillonnage sous hypothèse d’indépendance. Les réponses peuvent être corrélées ; ce résultat ne représente pas toute la visibilité sur Internet. Pas de recherche web activée, pas de classement inventé.",
-                            "The interval describes sampling uncertainty under an independence assumption. Responses may be correlated; this does not represent overall Internet visibility. Web search is not enabled. No invented rankings.",
+                            "L’intervalle décrit l’incertitude d’échantillonnage sous hypothèse d’indépendance. Les réponses peuvent être corrélées ; ce résultat ne représente pas toute la visibilité sur Internet. Aucun classement n’est déduit d’une simple mention.",
+                            "The interval describes sampling uncertainty under an independence assumption. Responses may be correlated; this does not represent overall Internet visibility. A mention alone does not imply a ranking.",
+                            "该区间在独立性假设下描述抽样不确定性。回答可能相关；这些结果不代表整个互联网的可见度。仅凭提及不能推断排名。",
                           )}
                         </p>
+                        {detail && (
+                          <p>
+                            {detail.run.snapshot.parameters.search
+                              ? t(
+                                  "Recherche web demandée. Son exécution et les citations sont vérifiables dans chaque réponse, uniquement lorsque le fournisseur les retourne.",
+                                  "Web search was requested. Its execution and citations can be checked in each answer, only when returned by the provider.",
+                                  "已请求网络搜索。仅当供应商返回相关信息时，才能在各回答中核实搜索执行情况及引用。",
+                                )
+                              : t(
+                                  "Recherche web non demandée pour cette campagne.",
+                                  "Web search was not requested for this campaign.",
+                                  "本次测量未请求网络搜索。",
+                                )}
+                          </p>
+                        )}
                       </details>
                     </>
                   )}
@@ -1101,8 +1167,11 @@ export function Workspace() {
                           {t("Ajouter", "Add")}
                         </Button>
                       </div>
-                      <div className="table-wrap">
-                        <table>
+                      <TableScroll
+                        label={t("Requêtes suivies", "Tracked queries", "跟踪的问题")}
+                        t={t}
+                      >
+                        <table className="stacked-table">
                           <thead>
                             <tr>
                               <th>{t("Requête", "Query")}</th>
@@ -1124,10 +1193,14 @@ export function Workspace() {
                                 ).size;
                               return (
                                 <tr key={q.id}>
-                                  <td className="question-cell">{q.text}</td>
-                                  <td>{rows.length || "—"}</td>
-                                  <td>{rows.length ? `${n} / ${rows.length}` : "—"}</td>
-                                  <td>
+                                  <td className="question-cell stacked-title">{q.text}</td>
+                                  <td data-label={t("Échantillon valide", "Valid sample")}>
+                                    {rows.length || "—"}
+                                  </td>
+                                  <td data-label={t("Présence de la marque", "Brand presence")}>
+                                    {rows.length ? `${n} / ${rows.length}` : "—"}
+                                  </td>
+                                  <td className="stacked-actions">
                                     <Button
                                       size="icon"
                                       variant="ghost"
@@ -1143,7 +1216,7 @@ export function Workspace() {
                             })}
                           </tbody>
                         </table>
-                      </div>
+                      </TableScroll>
                       <div className="card-note">
                         {t(
                           "Les changements s’appliquent à la prochaine campagne. Les campagnes passées gardent leur configuration d’origine.",
@@ -1240,8 +1313,8 @@ export function Workspace() {
                         <Globe2 size={18} />
                       </div>
                       {detail?.citations.length ? (
-                        <div className="table-wrap">
-                          <table>
+                        <TableScroll label={t("Sources citées", "Cited sources", "引用来源")} t={t}>
+                          <table className="stacked-table">
                             <thead>
                               <tr>
                                 <th>{t("Source", "Source")}</th>
@@ -1252,7 +1325,7 @@ export function Workspace() {
                             <tbody>
                               {detail.citations.map((c, i) => (
                                 <tr key={i}>
-                                  <td>
+                                  <td className="stacked-title">
                                     <a
                                       className="text-link"
                                       href={c.url}
@@ -1264,8 +1337,8 @@ export function Workspace() {
                                     </a>
                                     <small className="block muted">{c.domain}</small>
                                   </td>
-                                  <td>{c.provenance}</td>
-                                  <td>
+                                  <td data-label={t("Provenance", "Provenance")}>{c.provenance}</td>
+                                  <td className="stacked-actions">
                                     <Button
                                       size="sm"
                                       variant="ghost"
@@ -1283,7 +1356,7 @@ export function Workspace() {
                               ))}
                             </tbody>
                           </table>
-                        </div>
+                        </TableScroll>
                       ) : (
                         <Empty
                           icon={<Globe2 size={24} />}

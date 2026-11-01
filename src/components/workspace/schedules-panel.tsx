@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll";
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Pause, Play, Settings2 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -149,7 +150,7 @@ export function SchedulesPanel({
           <Settings2 size={18} />
         </div>
         {data?.events.length ? (
-          <div className="table-wrap">
+          <TableScroll label={t("Journal des échéances", "Schedule activity", "计划记录")} t={t}>
             <table>
               <thead>
                 <tr>
@@ -188,7 +189,7 @@ export function SchedulesPanel({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         ) : (
           <Empty title={t("Aucune échéance traitée", "No occurrences processed")}>
             {t(

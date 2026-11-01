@@ -20,7 +20,8 @@ import {
 } from "recharts";
 import { comparisonSignature, mentionRate } from "@/lib/measurement";
 import type { Run, RunDetail } from "@/lib/types";
-import { api, Empty, Field, type Translate } from "./shared";
+import { api, Empty, Field, isAborted, type Translate } from "./shared";
+import { Button } from "../ui/button";
 export function Metric({
   label,
   value,
@@ -164,8 +165,12 @@ export function HistoryChart({
 }) {
   const { reduced } = useMotionPreferences();
   const [points, setPoints] = useState<{ date: string; rate: number | null; n: number }[]>([]);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    setFailed(false);
     const matches = runs
       .filter(
         (r) =>
@@ -180,6 +185,9 @@ export function HistoryChart({
       matches.map(async (r) => {
         const d = await api<RunDetail>(
             `runs/${r.id}?brandScope=${detail ? comparisonScope(detail) : "original"}`,
+            "GET",
+            undefined,
+            controller.signal,
           ),
           b = comparisonBrands(d).find((b) => b.is_primary),
           n = new Set(d.mentions.filter((m) => m.brand_id === b?.id).map((m) => m.response_id))
@@ -208,13 +216,32 @@ export function HistoryChart({
             return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
           });
       })
-      .catch(() => {
-        if (!cancelled) setPoints([]);
+      .catch((e) => {
+        if (!cancelled && !isAborted(e)) {
+          setPoints([]);
+          setFailed(true);
+        }
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [runs, detail]);
+  }, [runs, detail, retry]);
+  if (failed)
+    return (
+      <div className="empty" role="status">
+        <p>
+          {t(
+            "Le graphique n’a pas pu être chargé.",
+            "The chart could not be loaded.",
+            "无法加载图表。",
+          )}
+        </p>
+        <Button variant="outline" onClick={() => setRetry((n) => n + 1)}>
+          {t("Réessayer", "Try again", "重试")}
+        </Button>
+      </div>
+    );
   if (!points.length)
     return (
       <Empty

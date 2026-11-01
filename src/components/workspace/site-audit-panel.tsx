@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -303,7 +304,7 @@ export function SiteAuditPanel({
                 </span>
               )}
             </div>
-            <div className="table-wrap">
+            <TableScroll label={t("Comparaison des pages", "Page comparison", "页面比较")} t={t}>
               <table className="audit-comparison">
                 <thead>
                   <tr>
@@ -373,7 +374,7 @@ export function SiteAuditPanel({
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
             <div className="audit-observations">
               {detail.comparison.map((site) => (
                 <details key={site.siteId}>
@@ -511,7 +512,7 @@ export function SiteAuditPanel({
                 />
               </Field>
             </div>
-            <div className="table-wrap">
+            <TableScroll label={t("Pages et preuves", "Pages and evidence", "页面及证据")} t={t}>
               <table className="audit-pages">
                 <thead>
                   <tr>
@@ -545,7 +546,7 @@ export function SiteAuditPanel({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
             {pages.length > 20 && (
               <div className="history-pagination">
                 <Button

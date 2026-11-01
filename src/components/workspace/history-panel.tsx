@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll";
 import { useState } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight, RotateCcw, Search } from "lucide-react";
 import type { RunDetail, ResponseRecord } from "@/lib/types";
@@ -195,7 +196,7 @@ export function HistoryPanel({
               </Button>
             </Empty>
           ) : (
-            <div className="table-wrap">
+            <TableScroll label={t("Journal des réponses", "Response ledger", "回答记录")} t={t}>
               <table className="response-table">
                 <thead>
                   <tr>
@@ -288,7 +289,7 @@ export function HistoryPanel({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
           )}
           {pageCount > 1 && (
             <nav

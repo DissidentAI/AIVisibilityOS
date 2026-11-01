@@ -10,6 +10,8 @@ const env = () => ({
   ENCRYPTION_KEY: "12".repeat(32),
 });
 async function navigate(page: Page, name: string) {
+  // A reload may still be showing the loading screen; visibility checks do not auto-wait.
+  await expect(page.locator(".main-shell")).toBeVisible();
   const menu = page.getByRole("button", { name: "Menu", exact: true });
   if (await menu.isVisible()) await menu.click();
   await page.getByRole("button", { name, exact: true }).click();

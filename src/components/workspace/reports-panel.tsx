@@ -1,4 +1,5 @@
 "use client";
+import { TableScroll } from "./table-scroll";
 import { useCallback, useEffect, useState } from "react";
 import { FileText, Download, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -281,8 +282,8 @@ export function ReportsPanel({
           <span className="badge">{reports.length}</span>
         </div>
         {reports.length ? (
-          <div className="table-wrap">
-            <table>
+          <TableScroll label={t("Rapports enregistrés", "Saved reports", "已保存的报告")} t={t}>
+            <table className="stacked-table">
               <thead>
                 <tr>
                   <th>{t("Rapport", "Report")}</th>
@@ -294,11 +295,11 @@ export function ReportsPanel({
               <tbody>
                 {reports.map((r) => (
                   <tr key={r.id}>
-                    <td>
+                    <td className="stacked-title">
                       <strong>{r.title}</strong>
                     </td>
-                    <td>{date(r.created_at)}</td>
-                    <td>
+                    <td data-label={t("Création", "Created")}>{date(r.created_at)}</td>
+                    <td className="stacked-actions">
                       <div className="inline">
                         <a className="text-link" download href={`/api/reports/${r.id}/pdf`}>
                           <Download size={14} />
@@ -309,7 +310,7 @@ export function ReportsPanel({
                         </a>
                       </div>
                     </td>
-                    <td>
+                    <td className="stacked-actions">
                       <Button
                         disabled={busy}
                         size="icon"
@@ -329,7 +330,7 @@ export function ReportsPanel({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         ) : (
           <Empty
             icon={<FileText size={25} />}

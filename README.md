@@ -2,7 +2,7 @@
 
 **Des mesures de visibilité IA que vos clients peuvent vérifier.**
 
-[English documentation](docs/README.en.md) · [Scans et rapports · FR / EN / 中文](docs/PLANNING-AND-REPORTS.md) · [Installation VPS](docs/DEPLOYMENT.md) · [Méthodologie](docs/METHODOLOGY.md) · [Validation commerciale](docs/BUSINESS.md)
+[English documentation](docs/README.en.md) · [Scans et rapports · FR / EN / 中文](docs/PLANNING-AND-REPORTS.md) · [Installation VPS](docs/DEPLOYMENT.md) · [Méthodologie](docs/METHODOLOGY.md) · [Validation commerciale](docs/BUSINESS.md) · [Audit produit et responsive](docs/AUDIT-PRODUIT-UX-2026-11-01.md)
 
 [Audit produit et améliorations du 1er novembre 2026](docs/AUDIT-2026-11-01.md)
 
