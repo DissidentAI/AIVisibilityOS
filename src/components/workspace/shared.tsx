@@ -186,6 +186,22 @@ export function friendly(code: string, t: Translate) {
       `Unable to verify ${PROVIDER_LABELS[provider]} right now. No scan was started; please try again shortly.`,
     );
   const errors: Record<string, string> = {
+    mimo_web_search_disabled: t(
+      "Xiaomi refuse la recherche web car le plugin Web Search n’est pas activé dans votre console MiMo. Activez-le chez Xiaomi, ou choisissez « API sans recherche web ». Ce refus ne concerne pas votre clé API.",
+      "Xiaomi rejected web search because the Web Search plugin is not enabled in your MiMo console. Enable it at Xiaomi or select ‘API without web search’. This rejection is not about your API key.",
+    ),
+    mimo_web_search_disabled_before_request: t(
+      "Appel non envoyé : Xiaomi a indiqué que Web Search n’est pas activé. Activez le plugin dans votre console MiMo ou lancez une campagne sans recherche web.",
+      "Request not sent: Xiaomi reported that Web Search is not enabled. Enable the plugin in your MiMo console or start a campaign without web search.",
+    ),
+    mimo_http_400: t(
+      "MiMo a refusé les paramètres (400). Le détail de cet ancien refus n’a pas été conservé. En mode web, vérifiez notamment que le plugin Web Search est activé dans votre console Xiaomi ; sinon choisissez le mode sans recherche.",
+      "MiMo rejected the parameters (400). Details of this older rejection were not retained. In web mode, check that Web Search is enabled in your Xiaomi console; otherwise select the mode without search.",
+    ),
+    provider_http_400: t(
+      "Le fournisseur a refusé les paramètres de la requête (400). Vérifiez le modèle et l’accès aux outils sélectionnés.",
+      "The provider rejected the request parameters (400). Check the model and access to the selected tools.",
+    ),
     invalid_schedule_date: t(
       "Choisissez une date future dans les 366 prochains jours.",
       "Choose a future date within the next 366 days.",

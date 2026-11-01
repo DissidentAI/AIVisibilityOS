@@ -275,12 +275,34 @@ export function CampaignDialog({
             </select>
           </Field>
           {providers.includes("mimo") && mode === "web" && (
-            <p className="small muted">
-              {t(
-                "Pour MiMo en direct, activez aussi le plugin Web Search dans votre console Xiaomi.",
-                "For direct MiMo access, also activate the Web Search plugin in your Xiaomi console.",
-              )}
-            </p>
+            <div className="alert info">
+              <strong>{t("MiMo : activation web requise", "MiMo: web activation required")}</strong>
+              <p>
+                {t(
+                  "Une clé valide ne suffit pas : activez le plugin Web Search dans votre console Xiaomi pour ce mode. Sinon, vous pouvez mesurer les réponses sans recherche web.",
+                  "A valid key is not enough: activate the Web Search plugin in your Xiaomi console for this mode. Otherwise, you can measure responses without web search.",
+                )}
+              </p>
+              <a
+                className="text-link"
+                href="https://platform.xiaomimimo.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("Ouvrir la console Xiaomi", "Open Xiaomi console")}
+              </a>
+              <Button
+                type="button"
+                variant="outline"
+                className="full"
+                onClick={() => {
+                  setMode("baseline");
+                  setConnectionError("");
+                }}
+              >
+                {t("Passer en mode sans recherche web", "Switch to mode without web search")}
+              </Button>
+            </div>
           )}
           <Field
             label={t("Échantillons par requête et fournisseur", "Samples per query and provider")}

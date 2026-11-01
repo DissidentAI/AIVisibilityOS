@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 
-test.use({ browserName: "webkit", viewport: { width: 390, height: 844 } });
+// This scenario tests validation and recovery, using the supported reduced-motion mode.
+// Animated navigation and modal focus remain covered in mobile-webkit.spec.ts.
+test.use({ browserName: "webkit", viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
 
 test("mobile onboarding: pasted URLs, precise errors and retained entries after server rejection", async ({
   page,

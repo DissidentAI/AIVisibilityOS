@@ -1741,7 +1741,9 @@ export function Workspace() {
                 {friendly(
                   response.error_code === "provider_http_401"
                     ? `provider_auth_rejected_${response.provider}`
-                    : response.error_code,
+                    : response.provider === "mimo" && response.error_code === "provider_http_400"
+                      ? "mimo_http_400"
+                      : response.error_code,
                   t,
                 )}
               </p>

@@ -6,7 +6,7 @@
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Migrations sur base vide et seconde application idempotente | Réussite                                                                           |
 | TypeScript strict                                           | Réussite                                                                           |
-| Tests unitaires + intégration PostgreSQL                    | **72 tests réussis**                                                               |
+| Tests unitaires + intégration PostgreSQL                    | **75 tests réussis**                                                               |
 | Build Next.js production standalone                         | Réussite                                                                           |
 | Parcours navigateur Chromium et WebKit                      | **9 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
 | Audit npm, dépendances de production et développement       | **0 vulnérabilité signalée** au contrôle effectué                                  |
@@ -81,3 +81,11 @@ Le contrôle d’authentification est testé avec session obligatoire, séparati
 Les scénarios WebKit couvrent la connexion directe Xiaomi depuis la campagne, le retour avec Xiaomi sélectionné, le clic sur les lignes et la sélection au clavier en mode web, le maintien des préférences sans stocker les clés, un refus 401 sans lancement de scan et la fermeture pendant un contrôle en cours sans lancement ultérieur. Les réponses de contrôle d’authentification sont explicitement simulées dans ces seuls tests navigateur ; les clés factices ne quittent pas leur environnement isolé.
 
 Les jobs CI disposent désormais d’un délai maximal, dont sept minutes pour l’installation des navigateurs, après observation d’une ancienne exécution bloquée à cette étape. Le résultat du nouveau commit doit être consulté sur GitHub ; un succès local ne prouve pas un succès CI.
+
+## Diagnostic MiMo HTTP 400
+
+Une unique répétition diagnostique d’une requête web refusée, avec la clé Xiaomi enregistrée, a retourné HTTP 400, `Param Incorrect`, et le paramètre `web search tool found in the request body, but webSearchEnabled is false`. Aucune réponse de génération ni aucun usage n’a été retourné. Ce diagnostic confirme que l’option de recherche web est désactivée côté compte Xiaomi ; il ne constitue pas un test réussi de génération avec ou sans recherche.
+
+L’adaptateur reconnaît uniquement ce refus précis dans un corps d’erreur limité à 16 Kio ; le texte fournisseur n’est ni exposé ni journalisé. Les autres erreurs restent génériques. Les tests vérifient l’arrêt des questions MiMo restantes, les réservations libérées uniquement pour les refus identifiés, le maintien des anciennes erreurs 400 sans réinterprétation et la possibilité de choisir une nouvelle campagne sans recherche. Le parcours WebKit contrôle le lien officiel et le changement explicite de mode, sans lancement automatique.
+
+Le scénario de validation des champs utilise maintenant le mode de mouvement réduit, après un délai de stabilité dépassé dans WebKit Linux en CI. Le scénario mobile distinct conserve les animations actives et leurs vérifications de navigation/focus.

@@ -334,6 +334,55 @@ describe("official API normalization with synthetic fixtures", () => {
       }).status,
     ).toBe("invalid");
   });
+  test("MiMo's disabled Web Search error is classified without exposing provider text or retrying", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "400",
+            message: "Param Incorrect synthetic-private-key",
+            param: "web search tool found in the request body, but webSearchEnabled is false",
+          },
+        }),
+        { status: 400 },
+      ),
+    );
+    await expect(
+      callProvider("mimo", "synthetic-private-key", "question", "system", "web"),
+    ).rejects.toThrow(/^mimo_web_search_disabled$/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  test("other, oversized and malformed MiMo errors stay generic and never leak upstream messages", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    for (const body of [
+      "not json synthetic-private-key",
+      JSON.stringify({ error: { message: "Invalid parameter synthetic-private-key" } }),
+      JSON.stringify({
+        padding: "x".repeat(17000),
+        error: {
+          param: "web search tool found in the request body, but webSearchEnabled is false",
+        },
+      }),
+    ]) {
+      fetch.mockResolvedValueOnce(new Response(body, { status: 400 }));
+      await expect(
+        callProvider("mimo", "synthetic-private-key", "question", "system", "web"),
+      ).rejects.toThrow(/^provider_http_400$/);
+    }
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            param: "web search tool found in the request body, but webSearchEnabled is false",
+          },
+        }),
+        { status: 400 },
+      ),
+    );
+    await expect(
+      callProvider("openrouter", "synthetic-private-key", "question", "system", "web"),
+    ).rejects.toThrow(/^provider_http_400$/);
+  });
   test("OpenAI preserves returned model, usage and structured citation", () => {
     const r = parseResponse("openai", openaiFixture);
     expect(r.status).toBe("succeeded");

@@ -83,6 +83,62 @@ async function route(
   );
 }
 describe("PostgreSQL integration, authorization and durable measurements", () => {
+  test("MiMo Web Search disabled stops pending calls, preserves baseline choice and releases only proven rejections", async () => {
+    const a = await prepared();
+    await saveCredential(a.user, { provider: "mimo", key: "synthetic-private-mimo-key" });
+    const run = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["mimo", "openai"],
+      samples: 1,
+      mode: "web",
+    });
+    let rejected = 0;
+    while (
+      await workOnce(async (provider) => {
+        if (provider === "mimo") {
+          rejected++;
+          throw new ProviderError("mimo_web_search_disabled");
+        }
+        return {
+          ...fixtureResult,
+          grounding: {
+            searched: false,
+            toolCalls: 0,
+            queries: [],
+            links: [],
+            searchEntryHtml: null,
+          },
+        };
+      })
+    ) {}
+    expect(rejected).toBe(1);
+    const detail = await getRun(a.user, run.id);
+    expect(detail.run.valid).toBe(10);
+    expect(detail.run.failed).toBe(10);
+    expect(
+      detail.responses.filter((r) => r.error_code === "mimo_web_search_disabled_before_request"),
+    ).toHaveLength(9);
+    expect(
+      detail.responses.filter((r) => r.provider === "mimo").every((r) => r.cost_micros === 0),
+    ).toBe(true);
+    // Old generic HTTP 400s lack sufficient evidence to rewrite their reason or cost.
+    const generic = detail.responses.find((r) => r.provider === "mimo")!;
+    await sql`update ai_responses set error_code='provider_http_400',cost_micros=null where id=${generic.id}`;
+    await sql`update usage_records set amount_micros=12345,kind='uncertain' where response_id=${generic.id}`;
+    await maintenance();
+    const [usage] =
+      await sql`select amount_micros,kind from usage_records where response_id=${generic.id}`;
+    expect(usage).toMatchObject({ amount_micros: 12345, kind: "uncertain" });
+    // No silent downgrade: the user can explicitly start a new baseline series.
+    await expect(
+      createRun(a.user, {
+        projectId: a.projectId,
+        providers: ["mimo"],
+        samples: 1,
+        mode: "baseline",
+      }),
+    ).resolves.toHaveProperty("id");
+  });
   test("Kimi, OpenRouter and direct MiMo web measurements keep sources and billing distinct", async () => {
     const a = await prepared();
     for (const provider of ["kimi", "openrouter", "mimo"])

@@ -160,6 +160,18 @@ test("provider rows work by label and keyboard in web mode, direct Xiaomi connec
   await mimo.press("Space");
   await expect(mimo).toBeChecked();
   await expect(page.getByLabel("Mode de mesure")).toHaveValue("web");
+  await expect(page.getByRole("link", { name: "Ouvrir la console Xiaomi" })).toHaveAttribute(
+    "href",
+    "https://platform.xiaomimimo.com/",
+  );
+  await page
+    .getByRole("button", { name: "Passer en mode sans recherche web", exact: true })
+    .click();
+  await expect(page.getByLabel("Mode de mesure")).toHaveValue("baseline");
+  await expect(mimo).toBeChecked();
+  // Changing mode is an explicit choice; it must not launch a campaign.
+  await expect(page.getByRole("dialog", { name: "Nouvelle campagne de mesure" })).toBeVisible();
+  await page.getByLabel("Mode de mesure").selectOption("web");
   for (const name of ["OpenAI", "Google Gemini", "OpenRouter", "Xiaomi MiMo"]) {
     const checkbox = page.getByRole("checkbox", { name, exact: true });
     if (await checkbox.isChecked()) await checkbox.uncheck();

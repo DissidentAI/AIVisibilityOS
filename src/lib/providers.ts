@@ -607,6 +607,38 @@ export async function callProvider(
     throw new ProviderError("network_or_timeout");
   }
   if (!response.ok) {
+    if (provider === "mimo" && response.status === 400) {
+      // Inspect only this known capability rejection. Never expose upstream text,
+      // which can echo a key or a user's prompt, and bound even an error response.
+      const reader = response.body?.getReader();
+      try {
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            size += value.length;
+            if (size > 16_384) break;
+            chunks.push(value);
+          }
+          if (size <= 16_384) {
+            const error = JSON.parse(Buffer.concat(chunks).toString("utf8"))?.error;
+            if (
+              error?.param ===
+              "web search tool found in the request body, but webSearchEnabled is false"
+            )
+              throw new ProviderError("mimo_web_search_disabled");
+          }
+        }
+      } catch (error) {
+        if (error instanceof ProviderError && error.code === "mimo_web_search_disabled")
+          throw error;
+      } finally {
+        await reader?.cancel().catch(() => {});
+      }
+      throw new ProviderError("provider_http_400");
+    }
     await response.body?.cancel();
     throw new ProviderError(`provider_http_${response.status}`);
   }

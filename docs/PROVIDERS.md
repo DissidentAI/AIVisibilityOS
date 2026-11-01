@@ -10,6 +10,8 @@ Ce profil utilise l’API à l’usage. Le Token Plan Xiaomi utilise une connexi
 
 Pour le mode web, activer le plugin **Web Search dans la console Xiaomi**. La requête contient `tools: [{type: "web_search", force_search: true, max_keyword: 1, limit: 3}]`. Les annotations structurées `message.annotations` de type `url_citation` deviennent des citations ; `usage.web_search_usage.tool_usage` indique les recherches effectuées. Une erreur de recherche retournée dans `message.error_message` invalide la mesure, au lieu de devenir une absence de marque.
 
+Un refus HTTP 400 avec le paramètre `webSearchEnabled is false` signifie que le compte n’a pas activé Web Search. Ce n’est pas un refus de la clé. L’application affiche cette cause, arrête les autres questions MiMo en attente de cette campagne et libère leurs réservations. Le formulaire propose un lien vers la console Xiaomi et un bouton pour choisir explicitement le mode sans recherche. Aucun changement de mode ni relancement payant automatique n’est effectué. Les anciens 400 sans détail conservé restent des erreurs génériques et leurs coûts incertains ne sont pas réécrits.
+
 ## Kimi et OpenRouter
 
 - **Kimi** : [clé de la plateforme API](https://platform.kimi.ai/docs/get-your-api-key), [modèles disponibles](https://platform.kimi.ai/docs/models). Le connecteur utilise `kimi-k3.1-pro`. Les clés Kimi Code et les abonnements grand public sont distincts de cette API.

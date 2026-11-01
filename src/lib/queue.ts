@@ -57,22 +57,23 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
         : 0;
     const reported = job.provider === "openrouter" ? result?.reportedCostMicros : null;
     const cachedInput = ["kimi", "mimo"].includes(job.provider) ? (result?.cachedInput ?? 0) : 0;
-    const cost =
-      errorCode === "provider_http_401"
-        ? 0
-        : reported != null
-          ? reported
-          : result?.input != null &&
-              result?.output != null &&
-              (job.snapshot.parameters.search !== true ||
-                (result.grounding != null && result.grounding.usageKnown !== false))
-            ? Math.ceil(
-                (result.input - cachedInput) * pricing[job.provider].input +
-                  cachedInput * (pricing[job.provider].cachedInput ?? pricing[job.provider].input) +
-                  result.output * pricing[job.provider].output +
-                  searchCost,
-              )
-            : null;
+    const rejectedBeforeInference =
+      errorCode === "provider_http_401" || errorCode === "mimo_web_search_disabled";
+    const cost = rejectedBeforeInference
+      ? 0
+      : reported != null
+        ? reported
+        : result?.input != null &&
+            result?.output != null &&
+            (job.snapshot.parameters.search !== true ||
+              (result.grounding != null && result.grounding.usageKnown !== false))
+          ? Math.ceil(
+              (result.input - cachedInput) * pricing[job.provider].input +
+                cachedInput * (pricing[job.provider].cachedInput ?? pricing[job.provider].input) +
+                result.output * pricing[job.provider].output +
+                searchCost,
+            )
+          : null;
     await tx`update ai_responses set status=${result?.status ?? "failed"}, answer=${result?.text ?? null}, returned_model=${result?.model ?? null}, raw=${result ? JSON.stringify(result.raw) : null}::jsonb, grounding=${result?.grounding ? JSON.stringify(result.grounding) : null}::jsonb, request_id=${result?.requestId ?? null}, input_tokens=${result?.input ?? null}, output_tokens=${result?.output ?? null}, cost_micros=${cost}, error_code=${errorCode ?? (result?.status === "invalid" ? "incomplete_or_refused" : null)}, finished_at=now() where id=${job.id} and org_id=${job.org_id}`;
     if (result)
       await tx`update ai_responses set parameters=parameters || ${JSON.stringify({
@@ -86,11 +87,15 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
       await tx`update usage_records set amount_micros=${cost}, kind='estimated' where response_id=${job.id} and org_id=${job.org_id}`;
     else
       await tx`update usage_records set kind='uncertain' where response_id=${job.id} and org_id=${job.org_id}`;
-    if (errorCode === "provider_http_401") {
-      // Authentication rejection cannot be repaired by repeating the same paid request.
+    if (rejectedBeforeInference) {
+      // These configuration rejections cannot be repaired by repeating the request.
       // Stop only pending work for this provider in this tenant's campaign.
+      const stoppedCode =
+        errorCode === "mimo_web_search_disabled"
+          ? "mimo_web_search_disabled_before_request"
+          : "provider_auth_failed_before_request";
       await tx`with stopped as (
-        update ai_responses set status='failed',error_code='provider_auth_failed_before_request',cost_micros=0,finished_at=now()
+        update ai_responses set status='failed',error_code=${stoppedCode},cost_micros=0,finished_at=now()
         where org_id=${job.org_id} and run_id=${job.run_id} and provider=${job.provider} and status='queued' returning id
       ) update usage_records set amount_micros=0,kind='estimated' where org_id=${job.org_id} and response_id in (select id from stopped)`;
     }
@@ -155,10 +160,10 @@ export async function maintenance() {
     // Reconcile earlier authentication rejections that conservatively retained reservations.
     await tx`update usage_records u set amount_micros=0,kind='estimated'
       from ai_responses a where u.response_id=a.id and u.org_id=a.org_id
-      and a.status='failed' and a.error_code in ('provider_http_401','provider_auth_failed_before_request')
+      and a.status='failed' and a.error_code in ('provider_http_401','provider_auth_failed_before_request','mimo_web_search_disabled','mimo_web_search_disabled_before_request')
       and (u.amount_micros<>0 or u.kind<>'estimated')`;
     await tx`update ai_responses set cost_micros=0 where status='failed'
-      and error_code in ('provider_http_401','provider_auth_failed_before_request') and cost_micros is distinct from 0`;
+      and error_code in ('provider_http_401','provider_auth_failed_before_request','mimo_web_search_disabled','mimo_web_search_disabled_before_request') and cost_micros is distinct from 0`;
     const expired =
       await tx`update ai_responses set status='uncertain',error_code='worker_interrupted_no_automatic_retry',finished_at=now() where status='running' and started_at < now() - interval '2 minutes' returning id`;
     for (const row of expired)
