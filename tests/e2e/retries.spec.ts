@@ -91,7 +91,22 @@ test.describe("retry workflow on desktop", () => {
     await expect(dialog.getByText(/peuvent déjà avoir été facturées/)).toBeVisible();
     await dialog.getByRole("button", { name: "Confirmer la reprise", exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByText("TENTATIVE DE REPRISE", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Campagne sélectionnée", { exact: true })).toHaveValue(sourceId);
+    await expect(page.getByText("TENTATIVE DE REPRISE", { exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Reprises ciblées", exact: true }),
+    ).toBeVisible();
+    // Existing filters and successful answers must survive a retry launch.
+    await expect(page.getByText("1 / 3 réponses affichées", { exact: true })).toBeVisible();
+    await page.getByLabel("Rechercher dans les réponses", { exact: true }).fill("");
+    await page.getByLabel("Statut", { exact: true }).selectOption("all");
+    await expect(page.getByText("3 / 3 réponses affichées", { exact: true })).toBeVisible();
+    const successfulRow = page
+      .locator(".history-panel tbody tr")
+      .filter({ hasText: "Quelle solution de carburant est disponible ?" });
+    await successfulRow.getByRole("button", { name: "Ouvrir", exact: true }).click();
+    await expect(page.locator(".answer")).toContainText("TEST SYNTHÉTIQUE");
+    await page.getByRole("button", { name: "Close / Fermer", exact: true }).click();
     let runs = await page.request.get(`/api/runs?project=${projectId}`).then((r) => r.json());
     expect(runs).toHaveLength(2);
     expect(runs[0].total).toBe(1);
@@ -99,7 +114,11 @@ test.describe("retry workflow on desktop", () => {
     await fixtureWorker();
     await page.reload();
     await page.getByRole("button", { name: "Historique & exports", exact: true }).click();
-    await page.getByRole("button", { name: "Campagne d’origine", exact: true }).click();
+    await expect(page.getByLabel("Campagne sélectionnée", { exact: true })).toHaveValue(sourceId);
+    await expect(page.getByText("3 / 3 réponses affichées", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Reprises ciblées", { exact: true })).toContainText(
+      "1/1 réponses valides",
+    );
     await expect(page.getByRole("button", { name: "Voir la reprise", exact: true })).toHaveCount(1);
     await page.getByRole("button", { name: "Réessayer l’échec affiché", exact: true }).click();
     await page.getByRole("button", { name: "Confirmer la reprise", exact: true }).click();
@@ -109,8 +128,15 @@ test.describe("retry workflow on desktop", () => {
     await fixtureWorker();
     await page.reload();
     await page.getByRole("button", { name: "Historique & exports", exact: true }).click();
-    await page.getByRole("button", { name: "Campagne d’origine", exact: true }).click();
+    await expect(page.getByLabel("Campagne sélectionnée", { exact: true })).toHaveValue(sourceId);
+    await expect(page.getByText("3 / 3 réponses affichées", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Voir la reprise", exact: true })).toHaveCount(2);
+    // A subset is displayed only after explicitly asking to inspect a retry.
+    await page.getByRole("button", { name: "Consulter la reprise", exact: true }).first().click();
+    await expect(page.getByText("TENTATIVE DE REPRISE", { exact: true })).toBeVisible();
+    await expect(page.getByText("1 / 1 réponses affichées", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Campagne d’origine", exact: true }).click();
+    await expect(page.getByText("3 / 3 réponses affichées", { exact: true })).toBeVisible();
     const original = await page.request.get(`/api/runs/${sourceId}`).then((r) => r.json());
     expect(original.run.failed).toBe(2);
     expect(original.run.valid).toBe(1);

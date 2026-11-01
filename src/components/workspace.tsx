@@ -113,8 +113,13 @@ export function Workspace() {
   const [credentialProvider, setCredentialProvider] = useState<Provider>("openai");
   const [returnToCampaign, setReturnToCampaign] = useState(false);
   const [retry, setRetry] = useState<{ detail: RunDetail; responseIds: string[] } | null>(null);
+  const campaignPending = runs.some((r) => r.pending > 0);
   function openRetry(ids: string[]) {
     if (!detail) return;
+    if (campaignPending) {
+      setError("campaign_already_running");
+      return;
+    }
     setError("");
     setResponse(null);
     setRetry({ detail, responseIds: ids });
@@ -197,7 +202,9 @@ export function Workspace() {
     const rs = await api<Run[]>(`runs?project=${projectId}`);
     if (seq !== activeRequest.current) return;
     setRuns(rs);
-    const selected = runId || rs[0]?.id;
+    // A retry contains only failed slots. Opening it by default hides the original
+    // successful answers, including after a browser reload.
+    const selected = runId || (rs.find((r) => !r.snapshot.parameters.retry) ?? rs[0])?.id;
     if (!selected) {
       setDetail(null);
       return;
@@ -224,7 +231,11 @@ export function Workspace() {
     }
   }, [projectId, runId]);
   useEffect(() => {
-    setDetail(null);
+    setDetail((current) =>
+      current?.run.project_id === projectId && (!runId || current.run.id === runId)
+        ? current
+        : null,
+    );
     refreshRuns().catch((e) => setError(e.message));
     return () => {
       activeRequest.current++;
@@ -800,6 +811,12 @@ export function Workspace() {
                       onRetry={openRetry}
                       onRun={openRun}
                       execution={state.execution}
+                      retryDisabled={campaignPending}
+                      retries={runs.filter(
+                        (r) =>
+                          (r.snapshot.parameters.retry as { sourceRunId?: string } | undefined)
+                            ?.sourceRunId === detail.run.id,
+                      )}
                     />
                   )}
                   {tab === "opportunities" && (
@@ -1227,6 +1244,7 @@ export function Workspace() {
                       onRetry={openRetry}
                       onRun={openRun}
                       onSettings={() => setTab("settings")}
+                      retryDisabled={campaignPending}
                     />
                   )}
                 </>
@@ -1623,18 +1641,22 @@ export function Workspace() {
             workerOnline={state.workerOnline}
             t={t}
             onClose={() => setRetry(null)}
-            onCreated={(id) => {
+            onCreated={() => {
+              const sourceId = retry.detail.run.id;
               setRetry(null);
-              setRunId(id);
+              setRunId(sourceId);
               setTab("history");
               setError("");
               setNotice(
                 t(
-                  "Reprise mise en file. Les anciennes tentatives sont conservées.",
-                  "Retry queued. Earlier attempts are preserved.",
+                  "Reprise mise en file. Toutes les réponses de cette campagne restent affichées. Retrouvez les nouvelles tentatives dans « Reprises ciblées ».",
+                  "Retry queued. All answers from this campaign remain visible. Follow the new attempts under “Targeted retries”.",
                 ),
               );
               refresh().catch((e) => setError(e.message));
+              // A changed selection refreshes through the effect; an unchanged
+              // selection needs an immediate refresh to show the retry links.
+              if (runId === sourceId) refreshRuns().catch((e) => setError(e.message));
             }}
           />
         )}
@@ -1775,7 +1797,7 @@ export function Workspace() {
               canRetry(response) && (
                 <Button
                   variant="outline"
-                  disabled={!!detail?.run.pending}
+                  disabled={campaignPending}
                   onClick={() => openRetry([response.id])}
                 >
                   <RotateCcw size={15} />

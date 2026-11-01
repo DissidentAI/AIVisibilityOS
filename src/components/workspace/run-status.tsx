@@ -1,5 +1,5 @@
 import { ArrowUpRight, RotateCcw } from "lucide-react";
-import type { RunDetail } from "@/lib/types";
+import type { Run, RunDetail } from "@/lib/types";
 import { canRetry, retrySource } from "@/lib/run-insights";
 import { Button } from "../ui/button";
 import type { Translate } from "./shared";
@@ -12,12 +12,16 @@ export function RunStatus({
   onRetry,
   onRun,
   execution = [],
+  retries = [],
+  retryDisabled = false,
 }: {
   detail: RunDetail;
   t: Translate;
   onRetry: (ids: string[]) => void;
   onRun: (id: string) => void;
   execution?: ExecutionStatus[];
+  retries?: Run[];
+  retryDisabled?: boolean;
 }) {
   const { total, valid, pending, failed } = detail.run;
   const ids = detail.responses.filter(canRetry).map((r) => r.id);
@@ -49,7 +53,12 @@ export function RunStatus({
           </h2>
         </div>
         {ids.length > 0 && (
-          <Button variant="outline" size="sm" onClick={() => onRetry(ids)} disabled={pending > 0}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onRetry(ids)}
+            disabled={pending > 0 || retryDisabled}
+          >
             <RotateCcw size={15} />
             {t(
               `Réessayer ${ids.length} ${ids.length === 1 ? "échec" : "échecs"}`,
@@ -124,6 +133,32 @@ export function RunStatus({
             {t("Campagne d’origine", "Original campaign")}
             <ArrowUpRight size={14} />
           </Button>
+        </div>
+      )}
+      {retries.length > 0 && (
+        <div className="retry-followup" aria-label={t("Reprises ciblées", "Targeted retries")}>
+          <h3>{t("Reprises ciblées", "Targeted retries")}</h3>
+          <p className="small muted">
+            {t(
+              "Toutes les réponses initiales restent affichées. Les indicateurs ci-dessus décrivent la campagne initiale ; chaque reprise conserve ses propres résultats et coûts.",
+              "All original answers remain visible. The figures above describe the original campaign; each retry keeps its own results and costs.",
+            )}
+          </p>
+          {retries.map((run) => (
+            <div className="retry-provenance" key={run.id}>
+              <p className="small" role={run.pending ? "status" : undefined}>
+                {t("Reprise", "Retry")} · {run.valid}/{run.total}{" "}
+                {t("réponses valides", "valid answers")} ·{" "}
+                {run.pending
+                  ? t(`${run.pending} en cours ou en attente`, `${run.pending} running or queued`)
+                  : t("terminée", "completed")}
+              </p>
+              <Button variant="ghost" size="sm" onClick={() => onRun(run.id)}>
+                {t("Consulter la reprise", "Inspect retry")}
+                <ArrowUpRight size={14} />
+              </Button>
+            </div>
+          ))}
         </div>
       )}
     </section>

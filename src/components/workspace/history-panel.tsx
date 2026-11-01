@@ -16,6 +16,7 @@ export function HistoryPanel({
   onRetry,
   onRun,
   onSettings,
+  retryDisabled = false,
 }: {
   detail: RunDetail | null;
   t: Translate;
@@ -25,6 +26,7 @@ export function HistoryPanel({
   onRetry: (ids: string[]) => void;
   onRun: (id: string) => void;
   onSettings: () => void;
+  retryDisabled?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState("all");
@@ -159,7 +161,7 @@ export function HistoryPanel({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={detail.run.pending > 0}
+                disabled={detail.run.pending > 0 || retryDisabled}
                 onClick={() => onRetry(eligible.map((r) => r.id))}
               >
                 <RotateCcw size={14} />
@@ -248,7 +250,7 @@ export function HistoryPanel({
                               <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={detail.run.pending > 0}
+                                disabled={detail.run.pending > 0 || retryDisabled}
                                 onClick={() => onRetry([r.id])}
                               >
                                 <RotateCcw size={13} />
