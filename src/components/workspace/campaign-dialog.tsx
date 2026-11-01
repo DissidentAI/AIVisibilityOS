@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play, CalendarClock } from "lucide-react";
 import { Button } from "../ui/button";
 import { api, Modal, Field, money, friendly, type Translate } from "./shared";
@@ -50,6 +50,8 @@ export function CampaignDialog({
   onSave,
   schedule = false,
   error = "",
+  onConnect,
+  requestedProvider,
 }: {
   project: Project;
   state: State;
@@ -59,6 +61,8 @@ export function CampaignDialog({
   onSave: (data: CampaignInput) => void;
   schedule?: boolean;
   error?: string;
+  onConnect?: (provider: Provider) => void;
+  requestedProvider?: Provider;
 }) {
   const [providers, setProviders] = useState<Provider[]>(state.credentials.map((c) => c.provider));
   const [samples, setSamples] = useState(1),
@@ -67,6 +71,15 @@ export function CampaignDialog({
   const storageKey = accountStorageKey("campaign", state.user, project.id);
   const [hydratedKey, setHydratedKey] = useState("");
   const [savedLocally, setSavedLocally] = useState(true);
+  const [checking, setChecking] = useState(false);
+  const [connectionError, setConnectionError] = useState("");
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const hydrated = hydratedKey === storageKey;
   useEffect(() => {
     const { value, available } = readBrowserValue(storageKey, campaignPreferenceSchema);
@@ -74,6 +87,12 @@ export function CampaignDialog({
       const selected = value.providers.filter((pr) =>
         state.credentials.some((c) => c.provider === pr),
       );
+      if (
+        requestedProvider &&
+        state.credentials.some((c) => c.provider === requestedProvider) &&
+        !selected.includes(requestedProvider)
+      )
+        selected.push(requestedProvider);
       setProviders(selected);
       setSamples(value.samples);
       setMode(
@@ -136,11 +155,22 @@ export function CampaignDialog({
           : t("Nouvelle campagne de mesure", "New measurement campaign")
       }
       onClose={onClose}
+      onCloseStart={() => {
+        mounted.current = false;
+      }}
     >
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (ready)
+          if (!ready || checking) return;
+          setChecking(true);
+          setConnectionError("");
+          try {
+            // Authenticate without generating text before starting a paid campaign.
+            for (const provider of providers) {
+              await api("credentials/check", "POST", { provider });
+              if (!mounted.current) return;
+            }
             onSave({
               ...JSON.parse(config),
               expectedConfigHash: estimate.configHash,
@@ -148,202 +178,220 @@ export function CampaignDialog({
                 ? { intervalHours: interval, firstRunAt: new Date(first).toISOString() }
                 : {}),
             });
+          } catch (error) {
+            if (mounted.current)
+              setConnectionError(error instanceof Error ? error.message : "internal_error");
+          } finally {
+            if (mounted.current) setChecking(false);
+          }
         }}
       >
-        <p className="muted">
-          {project.name} · {project.queries.length}{" "}
-          {t(
-            "requêtes · une conversation neuve par réponse",
-            "queries · a fresh conversation per response",
-          )}
-        </p>
-        <p className="small muted" role="status">
-          {savedLocally
-            ? t(
-                "Vos choix sont mémorisés sur cet appareil.",
-                "Your choices are remembered on this device.",
-              )
-            : t(
-                "Ce navigateur bloque la mémorisation de vos choix.",
-                "This browser blocks saving your choices.",
-              )}
-        </p>
-        <Field label={t("Fournisseurs à interroger", "Providers to query")}>
-          <div className="checkboxes">
-            {PROVIDERS.map((pr) => (
-              <label key={pr}>
-                <input
-                  type="checkbox"
-                  checked={providers.includes(pr)}
-                  disabled={
-                    !state.credentials.some((c) => c.provider === pr) ||
-                    (mode === "web" && !supportsWebSearch(pr))
-                  }
-                  onChange={(e) =>
-                    setProviders(
-                      e.target.checked ? [...providers, pr] : providers.filter((p) => p !== pr),
-                    )
-                  }
-                />
-                {PROVIDER_LABELS[pr]}
-                {!state.credentials.some((c) => c.provider === pr) && (
-                  <small>{t("Clé requise", "Key required")}</small>
+        <fieldset className="campaign-fields" disabled={busy || checking}>
+          <p className="muted">
+            {project.name} · {project.queries.length}{" "}
+            {t(
+              "requêtes · une conversation neuve par réponse",
+              "queries · a fresh conversation per response",
+            )}
+          </p>
+          <p className="small muted" role="status">
+            {savedLocally
+              ? t(
+                  "Vos choix sont mémorisés sur cet appareil.",
+                  "Your choices are remembered on this device.",
+                )
+              : t(
+                  "Ce navigateur bloque la mémorisation de vos choix.",
+                  "This browser blocks saving your choices.",
                 )}
-              </label>
-            ))}
-          </div>
-        </Field>
-        {providers.includes("openrouter") && (
+          </p>
+          <Field label={t("Fournisseurs à interroger", "Providers to query")}>
+            <div className="checkboxes">
+              {PROVIDERS.map((pr) => (
+                <label
+                  key={pr}
+                  className={`provider-choice ${providers.includes(pr) ? "is-selected" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={providers.includes(pr)}
+                    disabled={busy || checking}
+                    aria-label={PROVIDER_LABELS[pr]}
+                    onChange={(e) => {
+                      setConnectionError("");
+                      if (!state.credentials.some((c) => c.provider === pr)) {
+                        if (onConnect) onConnect(pr);
+                        else setConnectionError("credentials_required");
+                        return;
+                      }
+                      const checked = e.target.checked;
+                      setProviders((current) =>
+                        checked ? [...current, pr] : current.filter((p) => p !== pr),
+                      );
+                    }}
+                  />
+                  {PROVIDER_LABELS[pr]}
+                  {!state.credentials.some((c) => c.provider === pr) && (
+                    <small>{t("Connecter une clé", "Connect a key")}</small>
+                  )}
+                </label>
+              ))}
+            </div>
+          </Field>
+          {providers.includes("openrouter") && (
+            <Field
+              label={t("Modèle via OpenRouter", "Model via OpenRouter")}
+              hint={t(
+                "Le modèle choisi est conservé dans chaque mesure. Le fournisseur d’exécution est enregistré lorsqu’OpenRouter le retourne.",
+                "Each measurement keeps the selected model. The serving provider is recorded when OpenRouter returns it.",
+              )}
+            >
+              <select
+                value={openrouterModel}
+                onChange={(e) => setOpenrouterModel(e.target.value as OpenRouterModel)}
+              >
+                {OPENROUTER_MODEL_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {OPENROUTER_MODELS[id].name} · {id}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field
-            label={t("Modèle via OpenRouter", "Model via OpenRouter")}
+            label={t("Mode de mesure", "Measurement mode")}
             hint={t(
-              "Le modèle choisi est conservé dans chaque mesure. Le fournisseur d’exécution est enregistré lorsqu’OpenRouter le retourne.",
-              "Each measurement keeps the selected model. The serving provider is recorded when OpenRouter returns it.",
+              "Chaque mode conserve sa propre série historique.",
+              "Each mode keeps its own historical series.",
             )}
           >
-            <select
-              value={openrouterModel}
-              onChange={(e) => setOpenrouterModel(e.target.value as OpenRouterModel)}
-            >
-              {OPENROUTER_MODEL_IDS.map((id) => (
-                <option key={id} value={id}>
-                  {OPENROUTER_MODELS[id].name} · {id}
+            <select value={mode} onChange={(e) => setMode(e.target.value as MeasurementMode)}>
+              <option value="baseline">
+                {t("API sans recherche web", "API without web search")}
+              </option>
+              <option value="web">
+                {t("API avec recherche web et citations", "API with web search and citations")}
+              </option>
+            </select>
+          </Field>
+          {providers.includes("mimo") && mode === "web" && (
+            <p className="small muted">
+              {t(
+                "Pour MiMo en direct, activez aussi le plugin Web Search dans votre console Xiaomi.",
+                "For direct MiMo access, also activate the Web Search plugin in your Xiaomi console.",
+              )}
+            </p>
+          )}
+          <Field
+            label={t("Échantillons par requête et fournisseur", "Samples per query and provider")}
+          >
+            <select value={samples} onChange={(e) => setSamples(Number(e.target.value))}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n}
                 </option>
               ))}
             </select>
           </Field>
-        )}
-        <Field
-          label={t("Mode de mesure", "Measurement mode")}
-          hint={t(
-            "Chaque mode conserve sa propre série historique.",
-            "Each mode keeps its own historical series.",
+          {schedule && (
+            <>
+              <Field label={t("Fréquence", "Frequency")}>
+                <select value={interval} onChange={(e) => setInterval(Number(e.target.value))}>
+                  <option value="168">{t("Tous les 7 jours", "Every 7 days")}</option>
+                  <option value="24">{t("Toutes les 24 heures", "Every 24 hours")}</option>
+                </select>
+              </Field>
+              <Field
+                label={t("Première exécution", "First execution")}
+                hint={`${t("Heure locale", "Local time")} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`}
+              >
+                <input
+                  type="datetime-local"
+                  required
+                  value={first}
+                  min={localDateTime(new Date(Date.now() + 60000))}
+                  onChange={(e) => setFirst(e.target.value)}
+                />
+              </Field>
+              <p className="small muted">
+                {t(
+                  "Les questions et paramètres sont figés à l’enregistrement. La cadence est fixe en UTC, y compris lors des changements d’heure. Un nouveau planning remplace celui du projet.",
+                  "Questions and parameters are frozen when saved. Cadence is fixed in UTC, including daylight saving changes. A new schedule replaces this project's schedule.",
+                )}
+              </p>
+            </>
           )}
-        >
-          <select value={mode} onChange={(e) => setMode(e.target.value as MeasurementMode)}>
-            <option value="baseline">
-              {t("API sans recherche web", "API without web search")}
-            </option>
-            <option value="web" disabled={providers.some((pr) => !supportsWebSearch(pr))}>
-              {t("API avec recherche web et citations", "API with web search and citations")}
-            </option>
-          </select>
-        </Field>
-        {providers.some((pr) => !supportsWebSearch(pr)) && (
+          <div className="estimate-box" aria-live="polite">
+            {estimate && estimatedConfig === config ? (
+              <>
+                <strong>
+                  {estimate.responses} {t("réponses prévues", "planned responses")} ·{" "}
+                  {money(estimate.reservedMicros)}
+                </strong>
+                <span>
+                  {t("Réservation prudente par campagne", "Conservative reservation per campaign")}
+                </span>
+                <span>
+                  {t("Budget disponible", "Available budget")} :{" "}
+                  {money(Math.min(estimate.orgRemaining, estimate.installationRemaining))}
+                </span>
+                {schedule && (
+                  <span>
+                    {t(
+                      "Projection sur 31 jours, au tarif réservé",
+                      "31-day projection at reserved rates",
+                    )}{" "}
+                    : {money(estimate.reservedMicros * Math.ceil((31 * 24) / interval))}
+                  </span>
+                )}
+                {!estimate.affordable && (
+                  <p className="error-text">{friendly("budget_exceeded", t)}</p>
+                )}
+              </>
+            ) : (
+              <span>
+                {providers.length
+                  ? t("Calcul de l’estimation…", "Calculating estimate…")
+                  : t("Sélectionnez un fournisseur connecté.", "Select a connected provider.")}
+              </span>
+            )}
+          </div>
           <p className="small muted">
             {t(
-              "Kimi et OpenRouter sont disponibles en mode API sans recherche web. Aucune citation n’est déduite du texte généré.",
-              "Kimi and OpenRouter support API mode without web search. Generated links are not treated as citations.",
+              "Sortie limitée à 1 200 tokens par génération, ou 8 192 pour Kimi. En mode web, la réservation prévoit le contexte de recherche et jusqu’à deux générations OpenRouter. Le coût final dépend de l’usage retourné ; ce n’est pas un plafond de facture fournisseur. Taxes et frais de recharge exclus.",
+              "Output is limited to 1,200 tokens per generation, or 8,192 for Kimi. Web reservations include retrieval context and up to two OpenRouter generations. Final cost depends on reported usage; this is not a provider invoice cap. Taxes and credit purchase fees are excluded.",
             )}
           </p>
-        )}
-        <Field
-          label={t("Échantillons par requête et fournisseur", "Samples per query and provider")}
-        >
-          <select value={samples} onChange={(e) => setSamples(Number(e.target.value))}>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {schedule && (
-          <>
-            <Field label={t("Fréquence", "Frequency")}>
-              <select value={interval} onChange={(e) => setInterval(Number(e.target.value))}>
-                <option value="168">{t("Tous les 7 jours", "Every 7 days")}</option>
-                <option value="24">{t("Toutes les 24 heures", "Every 24 hours")}</option>
-              </select>
-            </Field>
-            <Field
-              label={t("Première exécution", "First execution")}
-              hint={`${t("Heure locale", "Local time")} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`}
-            >
-              <input
-                type="datetime-local"
-                required
-                value={first}
-                min={localDateTime(new Date(Date.now() + 60000))}
-                onChange={(e) => setFirst(e.target.value)}
-              />
-            </Field>
-            <p className="small muted">
+          {mode === "web" && (
+            <p className="alert info">
               {t(
-                "Les questions et paramètres sont figés à l’enregistrement. La cadence est fixe en UTC, y compris lors des changements d’heure. Un nouveau planning remplace celui du projet.",
-                "Questions and parameters are frozen when saved. Cadence is fixed in UTC, including daylight saving changes. A new schedule replaces this project's schedule.",
+                "La recherche est demandée au fournisseur. Sa réalisation et ses citations sont enregistrées lorsqu’elles sont effectivement retournées.",
+                "Search is requested from the provider. Its execution and citations are recorded when actually returned.",
               )}
             </p>
-          </>
-        )}
-        <div className="estimate-box" aria-live="polite">
-          {estimate && estimatedConfig === config ? (
-            <>
-              <strong>
-                {estimate.responses} {t("réponses prévues", "planned responses")} ·{" "}
-                {money(estimate.reservedMicros)}
-              </strong>
-              <span>
-                {t("Réservation prudente par campagne", "Conservative reservation per campaign")}
-              </span>
-              <span>
-                {t("Budget disponible", "Available budget")} :{" "}
-                {money(Math.min(estimate.orgRemaining, estimate.installationRemaining))}
-              </span>
-              {schedule && (
-                <span>
-                  {t(
-                    "Projection sur 31 jours, au tarif réservé",
-                    "31-day projection at reserved rates",
-                  )}{" "}
-                  : {money(estimate.reservedMicros * Math.ceil((31 * 24) / interval))}
-                </span>
-              )}
-              {!estimate.affordable && (
-                <p className="error-text">{friendly("budget_exceeded", t)}</p>
-              )}
-            </>
-          ) : (
-            <span>
-              {providers.length
-                ? t("Calcul de l’estimation…", "Calculating estimate…")
-                : t("Sélectionnez un fournisseur connecté.", "Select a connected provider.")}
-            </span>
           )}
-        </div>
-        <p className="small muted">
-          {t(
-            "Maximum 1 200 tokens de sortie, ou 8 192 pour Kimi (raisonnement inclus). Les frais de recherche sont inclus ; les taxes et frais de recharge sont exclus. Les coûts retournés par OpenRouter sont conservés. Les échecs ne sont pas relancés automatiquement.",
-            "Up to 1,200 output tokens, or 8,192 for Kimi (including reasoning). Search fees are included; taxes and credit purchase fees are excluded. OpenRouter-reported costs are retained. Failures are not retried automatically.",
+          {!state.workerOnline && (
+            <p className="alert info">
+              {t(
+                "Le worker est arrêté : les campagnes attendront son démarrage.",
+                "The worker is offline: campaigns will wait for it to start.",
+              )}
+            </p>
           )}
-        </p>
-        {mode === "web" && (
-          <p className="alert info">
-            {t(
-              "La recherche est demandée au fournisseur. Sa réalisation et ses citations sont enregistrées lorsqu’elles sont effectivement retournées.",
-              "Search is requested from the provider. Its execution and citations are recorded when actually returned.",
-            )}
-          </p>
-        )}
-        {!state.workerOnline && (
-          <p className="alert info">
-            {t(
-              "Le worker est arrêté : les campagnes attendront son démarrage.",
-              "The worker is offline: campaigns will wait for it to start.",
-            )}
-          </p>
-        )}
-        {(estimateError || error) && (
-          <p className="alert error" role="alert">
-            {friendly(estimateError || error, t)}
-          </p>
-        )}
-        <Button className="full" disabled={busy || !ready}>
-          {schedule ? <CalendarClock size={15} /> : <Play size={15} />}
-          {schedule
-            ? t("Enregistrer le planning", "Save schedule")
-            : t("Lancer les appels API", "Start API calls")}
-        </Button>
+          {(connectionError || estimateError || error) && (
+            <p className="alert error" role="alert">
+              {friendly(connectionError || estimateError || error, t)}
+            </p>
+          )}
+          <Button className="full" disabled={busy || checking || !ready}>
+            {schedule ? <CalendarClock size={15} /> : <Play size={15} />}
+            {checking
+              ? t("Vérification des clés…", "Checking API keys…")
+              : schedule
+                ? t("Enregistrer le planning", "Save schedule")
+                : t("Lancer les appels API", "Start API calls")}
+          </Button>
+        </fieldset>
       </form>
     </Modal>
   );

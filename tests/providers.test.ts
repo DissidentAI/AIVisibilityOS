@@ -151,7 +151,7 @@ describe("official API normalization with synthetic fixtures", () => {
       },
     });
     expect(body.models).toBeUndefined();
-    expect(body.plugins).toBeUndefined();
+    expect(body.plugins).toEqual([{ id: "web", enabled: false }]);
     expect(
       reserveMicros(
         "openrouter",
@@ -162,18 +162,177 @@ describe("official API normalization with synthetic fixtures", () => {
       ),
     ).toBeGreaterThan(81920);
   });
-  test("unsupported search and arbitrary model IDs are rejected before a paid request", async () => {
+  test("arbitrary model IDs are rejected before a paid request", async () => {
     const mock = vi.spyOn(globalThis, "fetch");
-    for (const provider of ["kimi", "openrouter"] as const) {
-      await expect(callProvider(provider, "fixture-key", "Q?", "fr", "web")).rejects.toThrow(
-        "web_search_unsupported",
-      );
-      expect(() => reserveMicros(provider, "Q?", "fr", "web")).toThrow("web_search_unsupported");
-    }
     await expect(
       callProvider("openrouter", "fixture-key", "Q?", "fr", "baseline", "openrouter/auto"),
     ).rejects.toThrow("model_configuration_changed");
     expect(mock).not.toHaveBeenCalled();
+  });
+  test("Kimi web uses Responses and keeps retrieved pages separate from answer citations", async () => {
+    const fixture = {
+      ...openaiFixture,
+      model: MODELS.kimi.id,
+      output: [
+        {
+          type: "web_search_call",
+          status: "completed",
+          action: {
+            query: "synthetic query",
+            sources: [
+              { type: "url", url: "https://example.com/source", title: "Fixture" },
+              { type: "url", url: "http://127.0.0.1/private" },
+            ],
+          },
+        },
+        ...openaiFixture.output,
+      ],
+      usage: { input_tokens: 200, output_tokens: 100, input_tokens_details: { cached_tokens: 50 } },
+    };
+    const mock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(fixture)));
+    const result = await callProvider("kimi", "synthetic-key", "Question?", "French", "web");
+    expect(mock.mock.calls[0][0]).toBe("https://api.moonshot.ai/v1/responses");
+    const body = JSON.parse(mock.mock.calls[0][1]!.body as string);
+    expect(body).toMatchObject({
+      max_output_tokens: 8192,
+      reasoning: { effort: "low" },
+      tools: [{ type: "web_search" }],
+      include: ["web_search_call.action.sources"],
+      tool_choice: "auto",
+    });
+    expect(body.search_context_size).toBeUndefined();
+    expect(body.max_tool_calls).toBeUndefined();
+    expect(result.citations).toEqual([]);
+    expect(result.grounding?.sources).toHaveLength(1);
+    expect(result.grounding).toMatchObject({
+      searched: true,
+      toolCalls: 1,
+      queries: ["synthetic query"],
+    });
+    expect(result.cachedInput).toBe(50);
+    expect(reserveMicros("kimi", "Q?", "fr", "web")).toBeGreaterThan(
+      reserveMicros("kimi", "Q?", "fr") + 5000,
+    );
+    expect(parseResponse("kimi", { ...fixture, status: "incomplete" }).status).toBe("invalid");
+  });
+  test("OpenRouter web pins the search engine and bounds the server loop, parses only structured citations", async () => {
+    const fixture = {
+      ...chatFixture,
+      choices: [
+        {
+          finish_reason: "stop",
+          message: {
+            content: "Karburo. https://invented.example",
+            annotations: [
+              {
+                type: "url_citation",
+                url_citation: { url: "https://example.com/source", title: "Fixture", end_index: 8 },
+              },
+              {
+                type: "url_citation",
+                url_citation: { url: "http://localhost/private", end_index: 8 },
+              },
+            ],
+          },
+        },
+      ],
+      usage: {
+        ...chatFixture.usage,
+        server_tool_use_details: { web_search_requests: 1 },
+        cost: 0.008234,
+      },
+    };
+    const mock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(fixture)));
+    const result = await callProvider(
+      "openrouter",
+      "synthetic-key",
+      "Q?",
+      "fr",
+      "web",
+      "xiaomi/mimo-v2.6-pro",
+    );
+    const body = JSON.parse(mock.mock.calls[0][1]!.body as string);
+    expect(body).toMatchObject({
+      model: "xiaomi/mimo-v2.6-pro",
+      max_tool_calls: 1,
+      tools: [
+        {
+          type: "openrouter:web_search",
+          parameters: {
+            engine: "exa",
+            mode: "fast",
+            max_uses: 1,
+            max_results: 3,
+            max_total_results: 3,
+            max_characters: 1500,
+          },
+        },
+      ],
+    });
+    expect(result.reportedCostMicros).toBe(8234);
+    expect(result.citations).toHaveLength(1);
+    expect(result.grounding).toMatchObject({
+      searched: true,
+      toolCalls: 1,
+      usageKnown: true,
+      links: [{ end: 8, url: "https://example.com/source" }],
+    });
+    expect(
+      parseResponse("openrouter", {
+        ...fixture,
+        usage: { prompt_tokens: 200, completion_tokens: 100 },
+      }).grounding?.usageKnown,
+    ).toBe(false);
+  });
+  test("Xiaomi MiMo accepts its own API key and normalizes web annotations and cached input", async () => {
+    const fixture = {
+      ...chatFixture,
+      model: MODELS.mimo.id,
+      choices: [
+        {
+          finish_reason: "stop",
+          message: {
+            content: "Karburo",
+            annotations: [
+              { type: "url_citation", url: "https://example.com/mimo", title: "MiMo fixture" },
+            ],
+          },
+        },
+      ],
+      usage: { ...chatFixture.usage, web_search_usage: { tool_usage: 1, page_usage: 3 } },
+    };
+    const mock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(fixture)));
+    const result = await callProvider("mimo", "synthetic-xiaomi-key", "Q?", "fr", "web");
+    expect(mock.mock.calls[0][0]).toBe("https://api.xiaomimimo.com/v1/chat/completions");
+    expect(mock.mock.calls[0][1]?.headers).toMatchObject({ "api-key": "synthetic-xiaomi-key" });
+    expect(JSON.parse(mock.mock.calls[0][1]!.body as string)).toMatchObject({
+      model: "mimo-v2.6-pro",
+      max_completion_tokens: 1200,
+      thinking: { type: "disabled" },
+      tools: [{ type: "web_search", force_search: true, max_keyword: 1, limit: 3 }],
+    });
+    expect(result.servingProvider).toBe("Xiaomi");
+    expect(result.cachedInput).toBe(50);
+    expect(result.reportedCostMicros).toBeNull();
+    expect(result.citations[0].provenance).toBe("mimo_web_search_annotation");
+    expect(result.grounding?.toolCalls).toBe(1);
+    expect(
+      parseResponse("mimo", {
+        ...fixture,
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: "Partial", error_message: "Search not enabled" },
+          },
+        ],
+      }).status,
+    ).toBe("invalid");
   });
   test("OpenAI preserves returned model, usage and structured citation", () => {
     const r = parseResponse("openai", openaiFixture);

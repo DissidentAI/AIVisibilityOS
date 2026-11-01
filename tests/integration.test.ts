@@ -13,7 +13,7 @@ import {
   reportMetrics,
 } from "../src/lib/reports";
 import sharp from "sharp";
-import { beforeAll, beforeEach, afterAll, describe, test, expect } from "vitest";
+import { beforeAll, beforeEach, afterEach, afterAll, describe, test, expect, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db, sql } from "../src/db/client";
@@ -23,7 +23,9 @@ import { digest, hashPassword } from "../src/lib/security";
 import { authenticate, requireUser, sessionToken, rateLimit } from "../src/lib/auth";
 import { GET, POST, DELETE } from "../src/app/api/[[...path]]/route";
 import type { User } from "../src/lib/types";
-import { parseResponse } from "../src/lib/providers";
+import { parseResponse, ProviderError } from "../src/lib/providers";
+import { MODELS } from "../src/lib/provider-config";
+afterEach(() => vi.restoreAllMocks());
 beforeAll(async () => {
   if (!new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"))
     throw new Error("Unsafe test database");
@@ -81,6 +83,220 @@ async function route(
   );
 }
 describe("PostgreSQL integration, authorization and durable measurements", () => {
+  test("Kimi, OpenRouter and direct MiMo web measurements keep sources and billing distinct", async () => {
+    const a = await prepared();
+    for (const provider of ["kimi", "openrouter", "mimo"])
+      await saveCredential(a.user, { provider, key: "synthetic-web-provider-key" });
+    const run = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["kimi", "openrouter", "mimo"],
+      samples: 1,
+      mode: "web",
+      openrouterModel: "xiaomi/mimo-v2.6-pro",
+    });
+    while (
+      await workOnce(async (provider) =>
+        provider === "kimi"
+          ? parseResponse("kimi", {
+              id: "fixture-kimi-web",
+              model: MODELS.kimi.id,
+              status: "completed",
+              output: [
+                {
+                  type: "web_search_call",
+                  action: {
+                    query: "synthetic",
+                    sources: [
+                      {
+                        type: "url",
+                        url: "https://example.com/retrieved",
+                        title: "Retrieved fixture",
+                      },
+                    ],
+                  },
+                },
+                {
+                  type: "message",
+                  content: [{ type: "output_text", text: "Karburo", annotations: [] }],
+                },
+              ],
+              usage: {
+                input_tokens: 200,
+                output_tokens: 100,
+                input_tokens_details: { cached_tokens: 50 },
+              },
+            })
+          : parseResponse(provider, {
+              id: "fixture-web",
+              model: provider === "mimo" ? MODELS.mimo.id : "xiaomi/mimo-v2.6-pro",
+              provider: "Synthetic host",
+              choices: [
+                {
+                  finish_reason: "stop",
+                  message: {
+                    content: "Karburo",
+                    annotations:
+                      provider === "mimo"
+                        ? [
+                            {
+                              type: "url_citation",
+                              url: "https://example.com/cited",
+                              title: "Citation fixture",
+                            },
+                          ]
+                        : [
+                            {
+                              type: "url_citation",
+                              url_citation: {
+                                url: "https://example.com/cited",
+                                title: "Citation fixture",
+                              },
+                            },
+                          ],
+                  },
+                },
+              ],
+              usage: {
+                prompt_tokens: 200,
+                completion_tokens: 100,
+                prompt_tokens_details: { cached_tokens: 50 },
+                ...(provider === "mimo"
+                  ? { web_search_usage: { tool_usage: 1, page_usage: 1 } }
+                  : { cost: 0.009, server_tool_use_details: { web_search_requests: 1 } }),
+              },
+            }),
+      )
+    ) {}
+    const detail = await getRun(a.user, run.id);
+    expect(detail.run.valid).toBe(30);
+    expect(detail.citations).toHaveLength(20);
+    const kimi = detail.responses.find((r) => r.provider === "kimi")!;
+    expect(kimi.grounding?.sources).toHaveLength(1);
+    expect(kimi.cost_micros).toBe(6310);
+    expect(detail.responses.find((r) => r.provider === "mimo")?.cost_micros).toBe(5153);
+    expect(detail.responses.find((r) => r.provider === "openrouter")?.cost_micros).toBe(9000);
+    expect(detail.run.snapshot.parameters.providers).toMatchObject({
+      kimi: { endpoint: "https://api.moonshot.ai/v1/responses" },
+      mimo: { endpoint: "https://api.xiaomimimo.com/v1/chat/completions" },
+    });
+  });
+  test("one 401 stops pending calls for the same provider and tenant, releases reserves, and blocks unchanged keys", async () => {
+    const a = await prepared();
+    await saveCredential(a.user, { provider: "kimi", key: "synthetic-rejected-key-a" });
+    await saveCredential(a.user, { provider: "mimo", key: "synthetic-valid-key-a" });
+    const b = await owner("second");
+    const bp = await createProject(b.user, input);
+    await saveCredential(b.user, { provider: "kimi", key: "synthetic-valid-key-b" });
+    const ar = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["kimi", "mimo"],
+      samples: 1,
+    });
+    const br = await createRun(b.user, { projectId: bp.id, providers: ["kimi"], samples: 1 });
+    let rejectedCalls = 0;
+    while (
+      await workOnce(async (provider, key) => {
+        if (key === "synthetic-rejected-key-a") {
+          rejectedCalls++;
+          throw new ProviderError("provider_http_401");
+        }
+        return parseResponse(provider, {
+          id: "synthetic-ok",
+          model: MODELS[provider].id,
+          choices: [{ finish_reason: "stop", message: { content: "Karburo" } }],
+          usage: { prompt_tokens: 10, completion_tokens: 10 },
+        });
+      })
+    ) {}
+    expect(rejectedCalls).toBe(1);
+    const detail = await getRun(a.user, ar.id);
+    expect(detail.run.valid).toBe(10);
+    expect(detail.run.failed).toBe(10);
+    expect(
+      detail.responses.filter((r) => r.provider === "kimi").every((r) => r.cost_micros === 0),
+    ).toBe(true);
+    expect(
+      detail.responses.filter((r) => r.error_code === "provider_auth_failed_before_request"),
+    ).toHaveLength(9);
+    expect((await getRun(b.user, br.id)).run.valid).toBe(10);
+    await expect(
+      createRun(a.user, { projectId: a.projectId, providers: ["kimi"], samples: 1 }),
+    ).rejects.toThrow("provider_auth_rejected_kimi");
+    const failed = detail.responses.find((r) => r.error_code === "provider_http_401")!;
+    await sql`update usage_records set kind='uncertain',amount_micros=12345 where response_id=${failed.id}`;
+    await sql`update ai_responses set cost_micros=null where id=${failed.id}`;
+    await maintenance();
+    const [usage] =
+      await sql`select amount_micros,kind from usage_records where response_id=${failed.id}`;
+    expect(usage).toMatchObject({ amount_micros: 0, kind: "estimated" });
+    await saveCredential(a.user, { provider: "kimi", key: "synthetic-replacement-key" });
+    await expect(
+      createRun(a.user, { projectId: a.projectId, providers: ["kimi"], samples: 1 }),
+    ).resolves.toHaveProperty("id");
+  });
+  test("credential checks require a session, respect tenant boundaries and never return secrets", async () => {
+    const a = await prepared();
+    const b = await owner("second");
+    await saveCredential(a.user, { provider: "kimi", key: "synthetic-private-kimi-key" });
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response('{"data":[]}'));
+    expect((await route("POST", "credentials/check", "", { provider: "kimi" })).status).toBe(401);
+    expect((await route("POST", "credentials/check", b.cookie, { provider: "kimi" })).status).toBe(
+      400,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    const checked = await route("POST", "credentials/check", a.cookie, {
+      provider: "kimi",
+      endpoint: "https://attacker.example",
+    });
+    expect(checked.status).toBe(200);
+    expect(await checked.text()).not.toContain("synthetic-private-kimi-key");
+    expect(fetch.mock.calls[0][0]).toBe("https://api.moonshot.ai/v1/models");
+    expect(fetch.mock.calls[0][1]?.headers).toMatchObject({
+      Authorization: "Bearer synthetic-private-kimi-key",
+    });
+    fetch.mockResolvedValueOnce(new Response("secret upstream content", { status: 401 }));
+    const denied = await route("POST", "credentials/check", a.cookie, { provider: "kimi" });
+    expect(await denied.json()).toEqual({ error: "provider_auth_rejected_kimi" });
+  });
+  test("missing web usage keeps costs uncertain unless OpenRouter reports a total", async () => {
+    const a = await prepared();
+    await saveCredential(a.user, { provider: "openrouter", key: "synthetic-router-key-only" });
+    const run = await createRun(a.user, {
+      projectId: a.projectId,
+      providers: ["openrouter"],
+      samples: 1,
+      mode: "web",
+    });
+    const job = await claimJob();
+    await settleJob(
+      job!,
+      parseResponse("openrouter", {
+        id: "synthetic",
+        model: "openai/gpt-4.1-mini",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: "Karburo",
+              annotations: [
+                { type: "url_citation", url_citation: { url: "https://example.com/cited" } },
+              ],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      }),
+      null,
+    );
+    expect(
+      (await getRun(a.user, run.id)).responses.find((r) => r.id === job!.id)?.cost_micros,
+    ).toBeNull();
+    expect((await sql`select kind from usage_records where response_id=${job!.id}`)[0].kind).toBe(
+      "uncertain",
+    );
+  });
   test("Kimi and selected OpenRouter models run through the durable worker with safe accounting", async () => {
     const a = await prepared();
     for (const provider of ["kimi", "openrouter"])
@@ -155,12 +371,12 @@ describe("PostgreSQL integration, authorization and durable measurements", () =>
       await sql`select encrypted_key from credentials where org_id=${a.user.org_id} and provider='kimi'`;
     expect(credential.encrypted_key).not.toContain("synthetic-private-provider-key");
   });
-  test("new providers retain budget limits and reject unsupported search and models before enqueue", async () => {
+  test("new providers retain budget limits and reject unsupported models before enqueue", async () => {
     const a = await prepared();
     await saveCredential(a.user, { provider: "kimi", key: "synthetic-private-kimi-key" });
     const config = { projectId: a.projectId, providers: ["kimi"], samples: 1 };
-    await expect(estimateRun(a.user, { ...config, mode: "web" })).rejects.toThrow(
-      "web_search_unsupported",
+    expect((await estimateRun(a.user, { ...config, mode: "web" })).reservedMicros).toBeGreaterThan(
+      (await estimateRun(a.user, config)).reservedMicros,
     );
     await expect(
       createRun(a.user, {

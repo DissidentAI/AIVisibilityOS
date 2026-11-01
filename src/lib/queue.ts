@@ -13,6 +13,7 @@ import {
 import { detectMentions } from "./measurement";
 import type { Snapshot } from "./types";
 import { snapshotJson } from "./snapshot-json";
+import { requestEndpoint } from "./provider-config";
 export type Job = {
   id: string;
   org_id: string;
@@ -55,20 +56,23 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
           (search.toolMicros + search.contentTokens * pricing[job.provider].input)
         : 0;
     const reported = job.provider === "openrouter" ? result?.reportedCostMicros : null;
-    const cachedInput = job.provider === "kimi" ? (result?.cachedInput ?? 0) : 0;
+    const cachedInput = ["kimi", "mimo"].includes(job.provider) ? (result?.cachedInput ?? 0) : 0;
     const cost =
-      reported != null
-        ? reported
-        : result?.input != null &&
-            result?.output != null &&
-            (job.snapshot.parameters.search !== true || result.grounding != null)
-          ? Math.ceil(
-              (result.input - cachedInput) * pricing[job.provider].input +
-                cachedInput * (pricing[job.provider].cachedInput ?? pricing[job.provider].input) +
-                result.output * pricing[job.provider].output +
-                searchCost,
-            )
-          : null;
+      errorCode === "provider_http_401"
+        ? 0
+        : reported != null
+          ? reported
+          : result?.input != null &&
+              result?.output != null &&
+              (job.snapshot.parameters.search !== true ||
+                (result.grounding != null && result.grounding.usageKnown !== false))
+            ? Math.ceil(
+                (result.input - cachedInput) * pricing[job.provider].input +
+                  cachedInput * (pricing[job.provider].cachedInput ?? pricing[job.provider].input) +
+                  result.output * pricing[job.provider].output +
+                  searchCost,
+              )
+            : null;
     await tx`update ai_responses set status=${result?.status ?? "failed"}, answer=${result?.text ?? null}, returned_model=${result?.model ?? null}, raw=${result ? JSON.stringify(result.raw) : null}::jsonb, grounding=${result?.grounding ? JSON.stringify(result.grounding) : null}::jsonb, request_id=${result?.requestId ?? null}, input_tokens=${result?.input ?? null}, output_tokens=${result?.output ?? null}, cost_micros=${cost}, error_code=${errorCode ?? (result?.status === "invalid" ? "incomplete_or_refused" : null)}, finished_at=now() where id=${job.id} and org_id=${job.org_id}`;
     if (result)
       await tx`update ai_responses set parameters=parameters || ${JSON.stringify({
@@ -82,6 +86,14 @@ export async function settleJob(job: Job, result: ProviderResult | null, errorCo
       await tx`update usage_records set amount_micros=${cost}, kind='estimated' where response_id=${job.id} and org_id=${job.org_id}`;
     else
       await tx`update usage_records set kind='uncertain' where response_id=${job.id} and org_id=${job.org_id}`;
+    if (errorCode === "provider_http_401") {
+      // Authentication rejection cannot be repaired by repeating the same paid request.
+      // Stop only pending work for this provider in this tenant's campaign.
+      await tx`with stopped as (
+        update ai_responses set status='failed',error_code='provider_auth_failed_before_request',cost_micros=0,finished_at=now()
+        where org_id=${job.org_id} and run_id=${job.run_id} and provider=${job.provider} and status='queued' returning id
+      ) update usage_records set amount_micros=0,kind='estimated' where org_id=${job.org_id} and response_id in (select id from stopped)`;
+    }
     if (result?.status === "succeeded") {
       for (const m of detectMentions(result.text, job.snapshot.brands))
         await tx`insert into brand_mentions (org_id,response_id,brand_id,brand_name,excerpt,matched_alias,sentiment) values (${job.org_id},${job.id},${m.brandId},${m.brandName},${m.excerpt},${m.matchedAlias},${m.sentiment})`;
@@ -107,7 +119,12 @@ export async function workOnce(adapter: typeof callProvider = callProvider) {
     )?.[job.provider];
     if (
       frozen &&
-      (frozen.endpoint !== model.endpoint ||
+      (frozen.endpoint !==
+        requestEndpoint(
+          job.provider,
+          job.snapshot.parameters.search === true ? "web" : "baseline",
+          model,
+        ) ||
         snapshotJson(frozen.request) !==
           snapshotJson(
             requestOptions(
@@ -135,6 +152,13 @@ export async function workOnce(adapter: typeof callProvider = callProvider) {
 }
 export async function maintenance() {
   await sql.begin(async (tx) => {
+    // Reconcile earlier authentication rejections that conservatively retained reservations.
+    await tx`update usage_records u set amount_micros=0,kind='estimated'
+      from ai_responses a where u.response_id=a.id and u.org_id=a.org_id
+      and a.status='failed' and a.error_code in ('provider_http_401','provider_auth_failed_before_request')
+      and (u.amount_micros<>0 or u.kind<>'estimated')`;
+    await tx`update ai_responses set cost_micros=0 where status='failed'
+      and error_code in ('provider_http_401','provider_auth_failed_before_request') and cost_micros is distinct from 0`;
     const expired =
       await tx`update ai_responses set status='uncertain',error_code='worker_interrupted_no_automatic_retry',finished_at=now() where status='running' and started_at < now() - interval '2 minutes' returning id`;
     for (const row of expired)

@@ -28,7 +28,12 @@ import type {
   Snapshot,
 } from "./types";
 import { projectSchema, ProjectValidationError } from "./project-validation";
-import { OPENROUTER_MODEL_IDS, modelConfiguration, supportsWebSearch } from "./provider-config";
+import {
+  OPENROUTER_MODEL_IDS,
+  modelConfiguration,
+  supportsWebSearch,
+  requestEndpoint,
+} from "./provider-config";
 import { requestOptions } from "./providers";
 import { snapshotJson } from "./snapshot-json";
 export { projectSchema, brandSchema } from "./project-validation";
@@ -178,7 +183,7 @@ export async function snapshotFor(
         providers.map((pr) => [
           pr,
           {
-            endpoint: models[pr].endpoint,
+            endpoint: requestEndpoint(pr, p.mode, models[pr]),
             channel: pr === "openrouter" ? "openrouter_api" : "official_api",
             request: requestOptions(pr, p.mode, models[pr]),
             timeoutMs: models[pr].reasoning === "low" ? 90_000 : 60_000,
@@ -275,6 +280,11 @@ export async function enqueueSnapshot(
   const creds = await tx`select provider from credentials where org_id=${user.org_id}`;
   if (snapshot.providers.some((provider) => !creds.some((c) => c.provider === provider)))
     throw new AppError("credentials_required");
+  const rejected = await tx`select c.provider from credentials c where c.org_id=${user.org_id}
+    and exists(select 1 from ai_responses a where a.org_id=c.org_id and a.provider=c.provider
+      and a.error_code='provider_http_401' and a.started_at>=c.updated_at and a.finished_at>c.updated_at)`;
+  const refused = snapshot.providers.find((pr) => rejected.some((c) => c.provider === pr));
+  if (refused) throw new AppError(`provider_auth_rejected_${refused}`);
   const total = snapshotReservation(snapshot),
     budget = await budgetStatus(tx, user);
   if (total > Math.min(budget.orgRemaining, budget.installationRemaining))

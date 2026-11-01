@@ -16,13 +16,14 @@ Capture de l’application exécutée dans le navigateur, avec une configuration
 
 - Compte propriétaire, sessions sécurisées et onboarding français/anglais.
 - Plusieurs projets, marque principale, jusqu’à dix concurrents et cinquante questions par projet.
-- Connecteurs OpenAI Responses, Google Gemini GenerateContent, Kimi et OpenRouter, clés chiffrées côté serveur. [Profils, coûts et limites](docs/PROVIDERS.md).
+- Connecteurs OpenAI, Google Gemini, Kimi, OpenRouter et **Xiaomi MiMo en direct avec votre clé Xiaomi**, clés chiffrées côté serveur. [Profils, coûts et limites](docs/PROVIDERS.md).
 - Brouillon de projet, dernier projet sélectionné et choix de campagne mémorisés dans le navigateur, séparément pour chaque compte. Aucune clé API dans le stockage local.
 - Campagnes à 1–5 échantillons par question/fournisseur, file PostgreSQL persistante et worker indépendant.
 - Réponses intégrales, mentions explicites, comparaisons, historique, incertitude statistique et CSV.
 - Budgets mensuels avec réservation atomique, aperçu du coût avant lancement et coûts inconnus conservés comme engagements prudents.
 - Campagnes planifiées toutes les 24 heures ou tous les 7 jours, pause/reprise et journal des échéances.
-- Mode API avec recherche web OpenAI/Gemini, citations cliquables et métadonnées de recherche vérifiables.
+- Mode API avec recherche web pour les cinq fournisseurs, citations structurées et pages trouvées distinguées. MiMo nécessite l’activation du plugin Web Search dans la console Xiaomi.
+- Vérification de l’authentification sans génération avant un scan manuel ; un refus 401 arrête les requêtes encore en attente du même fournisseur dans cette campagne.
 - Rapports PDF en français/anglais avec nom/logo d’agence, comparaison compatible et dossier de preuves JSON figé.
 - Interface ambre et encre, verre translucide, transitions et micro-interactions, thèmes clair/sombre et pause des animations respectant les préférences d’accessibilité.
 - Navigation mobile avec gestion du focus, export des données personnelles et suppression du compte.

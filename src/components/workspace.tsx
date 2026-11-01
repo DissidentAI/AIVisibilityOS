@@ -36,7 +36,14 @@ import { Button } from "./ui/button";
 import { motion } from "motion/react";
 import { PageTransition, useMotionPreferences } from "./ui/motion";
 import { useMobileNavigation } from "./ui/use-mobile-navigation";
-import { PROVIDERS, PROVIDER_LABELS, MODELS } from "@/lib/provider-config";
+import {
+  PROVIDERS,
+  PROVIDER_LABELS,
+  PROVIDER_KEY_URLS,
+  MODELS,
+  OPENROUTER_MODEL_IDS,
+  type Provider,
+} from "@/lib/provider-config";
 import {
   accountStorageKey,
   clearBrowserValue,
@@ -94,6 +101,8 @@ export function Workspace() {
       "project" | "run" | "credential" | "query" | "brand" | "delete" | null
     >(null),
     [response, setResponse] = useState<ResponseRecord | null>(null);
+  const [credentialProvider, setCredentialProvider] = useState<Provider>("openai");
+  const [returnToCampaign, setReturnToCampaign] = useState(false);
   const { sidebarRef, shellRef, triggerRef, isMobile } = useMobileNavigation(mobile, () =>
     setMobile(false),
   );
@@ -184,7 +193,7 @@ export function Workspace() {
   async function act(
     action: () => Promise<unknown>,
     message?: string,
-    options?: { rethrow?: boolean },
+    options?: { rethrow?: boolean; afterSuccess?: () => void },
   ) {
     setBusy(true);
     setError("");
@@ -195,6 +204,7 @@ export function Workspace() {
       // Selected run/project changes trigger their own effect; a stale callback here could reselect the previous campaign.
       setModal(null);
       if (message) setNotice(message);
+      options?.afterSuccess?.();
     } catch (e) {
       if (options?.rethrow) throw e;
       setError(e instanceof Error ? e.message : "internal_error");
@@ -1239,7 +1249,13 @@ export function Workspace() {
                           )}
                         </p>
                       </div>
-                      <Button variant="outline" onClick={() => setModal("credential")}>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setReturnToCampaign(false);
+                          setModal("credential");
+                        }}
+                      >
                         <KeyRound size={15} />
                         {t("Connecter une clé", "Connect a key")}
                       </Button>
@@ -1264,8 +1280,8 @@ export function Workspace() {
                             <p>
                               {pr === "openrouter"
                                 ? t(
-                                    "Chat Completions API · 3 modèles au choix",
-                                    "Chat Completions API · 3 model choices",
+                                    `Chat Completions API · ${OPENROUTER_MODEL_IDS.length} modèles au choix`,
+                                    `Chat Completions API · ${OPENROUTER_MODEL_IDS.length} model choices`,
                                   )
                                 : `${pr === "openai" ? "Responses" : pr === "gemini" ? "GenerateContent" : "Chat Completions"} API · ${MODELS[pr].name}`}
                             </p>
@@ -1275,6 +1291,26 @@ export function Workspace() {
                               ? t("Clé enregistrée", "Key saved")
                               : t("À connecter", "Not connected")}
                           </span>
+                          {connected && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              aria-label={`${t("Vérifier", "Check")} ${PROVIDER_LABELS[pr]}`}
+                              onClick={() =>
+                                act(
+                                  () => api("credentials/check", "POST", { provider: pr }),
+                                  t(
+                                    "Authentification acceptée. Aucun scan payant n’a été lancé. L’accès aux modèles et le solde se vérifient lors d’une mesure.",
+                                    "Authentication accepted. No paid scan was launched. Model access and balance are checked during a measurement.",
+                                  ),
+                                )
+                              }
+                            >
+                              <ShieldCheck size={15} />
+                              {t("Vérifier", "Check")}
+                            </Button>
+                          )}
                           {connected && (
                             <Button
                               variant="ghost"
@@ -1291,8 +1327,8 @@ export function Workspace() {
                     })}
                     <div className="card-note">
                       {t(
-                        "La validité d’une clé est vérifiée lors d’une mesure réelle. Son enregistrement ne déclenche aucun appel payant.",
-                        "Key validity is checked during a real measurement. Saving a key does not trigger a paid API call.",
+                        "L’authentification est vérifiée sans génération de texte à la connexion et avant un lancement manuel. Ce contrôle ne garantit pas le solde ni l’accès à chaque modèle ou outil web.",
+                        "Authentication is checked without generating text when connecting and before a manual launch. This check does not guarantee sufficient balance or access to every model or web tool.",
                       )}
                     </div>
                   </section>
@@ -1461,23 +1497,37 @@ export function Workspace() {
         {modal === "credential" && (
           <Modal
             title={t("Connecter un fournisseur", "Connect a provider")}
-            onClose={() => setModal(null)}
+            onClose={() => setModal(returnToCampaign ? "run" : null)}
           >
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 const f = new FormData(e.currentTarget);
                 act(
-                  () => api("credentials", "POST", Object.fromEntries(f)),
+                  async () => {
+                    const data = Object.fromEntries(f);
+                    await api("credentials/check", "POST", data);
+                    await api("credentials", "POST", data);
+                  },
                   t(
-                    "Clé chiffrée et enregistrée. Lancez une mesure pour vérifier la connexion.",
-                    "Key encrypted and saved. Run a measurement to verify the connection.",
+                    "Authentification acceptée. Clé chiffrée et enregistrée, sans scan payant.",
+                    "Authentication accepted. Key encrypted and saved without a paid scan.",
                   ),
+                  {
+                    afterSuccess: () => {
+                      if (returnToCampaign) setModal("run");
+                    },
+                  },
                 );
               }}
             >
               <Field label={t("Fournisseur", "Provider")}>
-                <select name="provider">
+                <select
+                  name="provider"
+                  value={credentialProvider}
+                  onChange={(e) => setCredentialProvider(e.target.value as Provider)}
+                  disabled={busy}
+                >
                   {PROVIDERS.map((provider) => (
                     <option key={provider} value={provider}>
                       {PROVIDER_LABELS[provider]}
@@ -1485,6 +1535,30 @@ export function Workspace() {
                   ))}
                 </select>
               </Field>
+              <p className="small muted">
+                {credentialProvider === "kimi"
+                  ? t(
+                      "Utilisez une clé de la plateforme API Kimi. Les clés Kimi Code et les abonnements au chat sont distincts.",
+                      "Use a Kimi API Platform key. Kimi Code keys and chat subscriptions are separate.",
+                    )
+                  : credentialProvider === "mimo"
+                    ? t(
+                        "Utilisez une clé API Xiaomi à l’usage ; le Token Plan utilise une autre connexion.",
+                        "Use a Xiaomi pay-as-you-go API key; Token Plan uses a separate connection.",
+                      )
+                    : t(
+                        "Utilisez la clé de la plateforme API de ce fournisseur.",
+                        "Use a key from this provider's API platform.",
+                      )}{" "}
+                <a
+                  className="text-link"
+                  href={PROVIDER_KEY_URLS[credentialProvider]}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("Ouvrir la plateforme officielle", "Open official platform")}
+                </a>
+              </p>
               <Field
                 label={t("Clé API", "API key")}
                 hint={t(
@@ -1499,6 +1573,7 @@ export function Workspace() {
                   maxLength={512}
                   required
                   autoComplete="off"
+                  disabled={busy}
                 />
               </Field>
               <p className="muted small">
@@ -1519,7 +1594,17 @@ export function Workspace() {
             state={state}
             t={t}
             busy={busy}
-            onClose={() => setModal(null)}
+            requestedProvider={returnToCampaign ? credentialProvider : undefined}
+            onConnect={(provider) => {
+              setError("");
+              setCredentialProvider(provider);
+              setReturnToCampaign(true);
+              setModal("credential");
+            }}
+            onClose={() => {
+              setReturnToCampaign(false);
+              setModal(null);
+            }}
             onSave={(data) =>
               act(
                 async () => {
@@ -1651,7 +1736,16 @@ export function Workspace() {
               citations={detail?.citations.filter((c) => c.response_id === response.id) ?? []}
               t={t}
             />
-            {response.error_code && <p className="alert error">{response.error_code}</p>}
+            {response.error_code && (
+              <p className="alert error">
+                {friendly(
+                  response.error_code === "provider_http_401"
+                    ? `provider_auth_rejected_${response.provider}`
+                    : response.error_code,
+                  t,
+                )}
+              </p>
+            )}
             <h3>{t("Extraits justifiant les mentions", "Evidence supporting mentions")}</h3>
             {detail?.mentions
               .filter((m) => m.response_id === response.id)

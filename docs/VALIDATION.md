@@ -6,13 +6,13 @@
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Migrations sur base vide et seconde application idempotente | Réussite                                                                           |
 | TypeScript strict                                           | Réussite                                                                           |
-| Tests unitaires + intégration PostgreSQL                    | **62 tests réussis**                                                               |
+| Tests unitaires + intégration PostgreSQL                    | **72 tests réussis**                                                               |
 | Build Next.js production standalone                         | Réussite                                                                           |
-| Parcours navigateur Chromium et WebKit                      | **7 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
+| Parcours navigateur Chromium et WebKit                      | **9 scénarios réussis**, desktop + mobile 320/390 px, FR + EN                      |
 | Audit npm, dépendances de production et développement       | **0 vulnérabilité signalée** au contrôle effectué                                  |
 | Connexion réelle OpenAI                                     | Non vérifiée : aucune clé réelle fournie                                           |
 | Connexion réelle Gemini                                     | Non vérifiée : aucune clé réelle fournie                                           |
-| Connexion réelle Kimi / OpenRouter                          | Non vérifiée : réponses synthétiques uniquement                                    |
+| Appels de génération Kimi / OpenRouter / Xiaomi MiMo        | Non vérifiés : réponses synthétiques uniquement                                    |
 | Docker sur la machine locale                                | Docker absent localement ; **images, démarrage et smoke test validés en CI Linux** |
 | Déploiement public et HTTPS sur VPS                         | Non effectués                                                                      |
 | Audit de sécurité indépendant / charge SaaS multi-tenant    | Non effectués ; cloud partagé fermé                                                |
@@ -69,3 +69,15 @@ Les tests couvrent les requêtes HTTP, modèles autorisés, refus/troncatures, t
 Trois nouveaux parcours WebKit vérifient la restauration d’un brouillon après rechargement/fermeture, sa suppression après création ou abandon explicite, les nouvelles connexions et préférences de campagne, l’absence de clés dans le stockage local et le fonctionnement lorsque ce stockage est bloqué. Les tests du stockage couvrent aussi l’expiration, les données corrompues/surdimensionnées et la séparation des comptes. **Les connexions réelles Kimi/OpenRouter restent non vérifiées sans clés autorisées ; aucune mesure payante n’a été lancée.**
 
 La configuration canonique a aussi été vérifiée après stockage JSONB et inversion de l’ordre des fournisseurs. Le worker refuse une modification des paramètres figés. Une panne simulée du rafraîchissement après création confirme que le brouillon est supprimé dès la confirmation serveur, sans attendre le chargement du tableau de bord.
+
+## Xiaomi MiMo direct, recherche web et refus d’authentification
+
+Le connecteur Xiaomi utilise sa propre clé et son endpoint officiel, modèle `mimo-v2.6-pro`. Les contrats de recherche Kimi Responses, OpenRouter Server Tools/Exa et Xiaomi Web Search ont été vérifiés dans les documentations officielles ; les exemples Xiaomi et ses tarifs ont été inspectés dans son site officiel. Les tests HTTP vérifient les en-têtes, paramètres, endpoints fixes, citations structurées, compteurs de recherche, tokens de cache et coûts. Les pages trouvées par Kimi ne sont pas comptées comme citations. Les réponses simulées ne prouvent pas la disponibilité commerciale des comptes ou des modèles.
+
+Les tests PostgreSQL exécutent trente réponses web synthétiques, conservent les preuves et tarifs des trois fournisseurs, puis simulent un 401. Ils vérifient qu’un seul appel refusé arrête les neuf requêtes Kimi restantes de la campagne, sans affecter l’autre fournisseur ni l’autre organisation. Leurs réservations sont libérées, les erreurs restent dans l’historique et la même clé refusée bloque une nouvelle campagne jusqu’au remplacement. Les refus anciens sont réconciliés sans suppression de réponses. Un usage de recherche OpenRouter absent reste un coût incertain si aucun total fournisseur n’est retourné.
+
+Le contrôle d’authentification est testé avec session obligatoire, séparation des organisations, URLs fixes et absence de secrets dans les réponses. Un **contrôle réel en lecture seule** de la clé Kimi enregistrée a retourné HTTP 401 ; les vingt réponses Kimi déjà échouées portaient le même code. Cela confirme un refus d’authentification, sans identifier à lui seul si la clé est erronée, révoquée ou destinée à une autre plateforme. La clé doit être remplacée dans l’application. **Aucun appel réel de génération n’a été lancé par cette validation.** Xiaomi et OpenRouter restent à vérifier avec les clés autorisées du propriétaire.
+
+Les scénarios WebKit couvrent la connexion directe Xiaomi depuis la campagne, le retour avec Xiaomi sélectionné, le clic sur les lignes et la sélection au clavier en mode web, le maintien des préférences sans stocker les clés, un refus 401 sans lancement de scan et la fermeture pendant un contrôle en cours sans lancement ultérieur. Les réponses de contrôle d’authentification sont explicitement simulées dans ces seuls tests navigateur ; les clés factices ne quittent pas leur environnement isolé.
+
+Les jobs CI disposent désormais d’un délai maximal, dont sept minutes pour l’installation des navigateurs, après observation d’une ancienne exécution bloquée à cette étape. Le résultat du nouveau commit doit être consulté sur GitHub ; un succès local ne prouve pas un succès CI.

@@ -1,39 +1,66 @@
-# Kimi, OpenRouter et sauvegarde du navigateur
+# Fournisseurs, recherche web et sauvegarde du navigateur
 
-Documentation des nouveaux connecteurs vérifiée le **1er novembre 2026**. Les adaptateurs utilisent HTTP côté serveur, sans SDK supplémentaire. Ils mesurent les API et ne reproduisent pas les applications grand public.
+Documentation officielle vérifiée le **1er novembre 2026**. Les adaptateurs utilisent HTTP côté serveur, sans SDK supplémentaire. Ils mesurent les API et ne reproduisent pas les applications grand public.
 
-## Connexion
+## Connexion directe Xiaomi MiMo
 
-Dans **Paramètres → Connecter une clé**, choisir Kimi ou OpenRouter et enregistrer la clé de la plateforme API correspondante. Les clés sont chiffrées en base, liées à l’organisation et au fournisseur ; elles ne sont ni retournées dans `/api/state`, ni sauvegardées dans le stockage local. L’enregistrement ne lance aucun appel payant. Une mesure réelle nécessite une clé autorisée et un solde fournisseur suffisant.
+Dans **Paramètres → Connecter une clé → Xiaomi MiMo**, enregistrer votre clé API Xiaomi. Le modèle est **MiMo V2.6 Pro** (`mimo-v2.6-pro`). Aucun compte OpenRouter n’est nécessaire. Le connecteur envoie la clé dans l’en-tête `api-key` à `https://api.xiaomimimo.com/v1/chat/completions`, selon le [contrat officiel Xiaomi](https://mimo.mi.com/docs/en-US/api/chat/openai-api).
 
-- **Kimi** : [démarrage officiel](https://platform.kimi.ai/docs/get-your-api-key), [modèles disponibles](https://platform.kimi.ai/docs/models). Le connecteur utilise `kimi-k3.1-pro` via `https://api.moonshot.ai/v1/chat/completions`. Les abonnements grand public/Kimi Code ne sont pas des crédits de cette API. Le modèle K2.5 est retiré et les modèles K2 ne sont plus accessibles aux nouveaux comptes ; ils ne sont donc pas proposés.
-- **OpenRouter** : [démarrage officiel](https://openrouter.ai/docs/quickstart), [Chat Completions](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request). Une campagne peut choisir un profil parmi les trois ci-dessous, à partir du [catalogue officiel](https://openrouter.ai/api/v1/models). Cette version n’expose pas tout le catalogue OpenRouter.
+Ce profil utilise l’API à l’usage. Le Token Plan Xiaomi utilise une connexion distincte, non implémentée ici. Le [guide officiel](https://mimo.mi.com/docs/en-US/quick-start/summary/welcome) permet de vérifier le type de compte. La sortie est limitée à 1 200 tokens, avec `thinking: {type: "disabled"}` et `temperature: 0.7` ; le raisonnement n’est pas injecté dans les mesures. [Paramètres des modèles](https://mimo.mi.com/docs/en-US/api/guidance/model-hyperparameters).
+
+Pour le mode web, activer le plugin **Web Search dans la console Xiaomi**. La requête contient `tools: [{type: "web_search", force_search: true, max_keyword: 1, limit: 3}]`. Les annotations structurées `message.annotations` de type `url_citation` deviennent des citations ; `usage.web_search_usage.tool_usage` indique les recherches effectuées. Une erreur de recherche retournée dans `message.error_message` invalide la mesure, au lieu de devenir une absence de marque.
+
+## Kimi et OpenRouter
+
+- **Kimi** : [clé de la plateforme API](https://platform.kimi.ai/docs/get-your-api-key), [modèles disponibles](https://platform.kimi.ai/docs/models). Le connecteur utilise `kimi-k3.1-pro`. Les clés Kimi Code et les abonnements grand public sont distincts de cette API.
+- **OpenRouter** : [démarrage officiel](https://openrouter.ai/docs/quickstart), [Chat Completions](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request). Quatre profils sont proposés, vérifiés dans le [catalogue officiel](https://openrouter.ai/api/v1/models). Le catalogue complet n’est pas exposé.
 
 | Profil OpenRouter              | Entrée USD / million | Sortie USD / million |           Limite de sortie |
 | ------------------------------ | -------------------: | -------------------: | -------------------------: |
 | `openai/gpt-4.1-mini`          |                 0,40 |                 1,60 |                      1 200 |
 | `google/gemini-2.5-flash-lite` |                 0,10 |                 0,40 |                      1 200 |
 | `moonshotai/kimi-k3.1-pro`     |                 2,00 |                10,00 | 8 192, raisonnement inclus |
+| `xiaomi/mimo-v2.6-pro`         |                0,435 |                 0,87 |                      1 200 |
 
-## Paramètres et preuves
+### Recherche Kimi
 
-Kimi K3.1 Pro conserve son raisonnement activé. Le connecteur demande `reasoning_effort: low`, `max_completion_tokens: 8192` et un cache implicite de cinq minutes ; il omet les paramètres d’échantillonnage fixes du modèle. Seul le contenu de réponse final alimente les mentions. Les tokens de raisonnement sont déjà inclus dans `completion_tokens`, sans double comptage. Voir [le guide K3.1 Pro](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart) et [le contrat Chat Completions](https://platform.kimi.ai/docs/api/chat).
+Le mode sans recherche utilise [Chat Completions](https://platform.kimi.ai/docs/api/chat) à `/v1/chat/completions`, avec `reasoning_effort: low`, `max_completion_tokens: 8192` et un cache implicite de cinq minutes.
 
-OpenRouter reçoit un identifiant de modèle précis, sans routeur automatique ni liste de modèles de secours. Le routage entre hébergeurs du même modèle reste possible, avec `require_parameters: true`, `data_collection: deny` et `max_price` plafonné aux tarifs du profil (aucun tarif par requête accepté). Si aucun hébergeur ne correspond, l’appel échoue ; aucune substitution silencieuse de modèle n’est effectuée par l’application. [Routage officiel](https://openrouter.ai/docs/guides/routing/provider-selection), [paramètres de raisonnement](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
+Le mode web utilise la nouvelle [API Responses officielle](https://platform.kimi.ai/docs/api/responses) à `https://api.moonshot.ai/v1/responses`, avec `reasoning: {effort: "low"}`, `max_output_tokens: 8192`, `tools: [{type: "web_search", search_content_types: ["text"]}]`, `tool_choice: "auto"` et `include: ["web_search_call.action.sources"]`. L’API décide si une recherche est nécessaire : l’activation ne garantit pas son utilisation. Aucun `max_tool_calls` ou paramètre de géolocalisation non documenté n’est envoyé.
 
-Chaque campagne conserve les paramètres par fournisseur, l’endpoint, le modèle demandé et les tarifs. Chaque réponse conserve son modèle retourné, son identifiant, ses dates, son usage et le fournisseur d’exécution communiqué par OpenRouter. Celui-ci est visible dans la preuve et les exports. La comparaison historique exige aussi une composition identique des fournisseurs d’exécution OpenRouter ; si cette information manque, la campagne reste consultable mais n’entre pas dans une comparaison automatique.
+Les pages de `web_search_call.action.sources` sont conservées et affichées comme **pages trouvées par la recherche**, séparément des citations de réponse. Elles n’alimentent pas le taux de citation. Aucun lien généré dans le texte n’est transformé en citation. Le raisonnement reste exclu du texte analysé et ses tokens, déjà compris dans la sortie, ne sont pas comptés deux fois.
 
-Kimi et OpenRouter sont disponibles **sans recherche web** dans cette livraison. Le mode web reste limité à OpenAI et Gemini. Un lien généré dans une réponse Kimi/OpenRouter n’est pas transformé en citation. Les réponses vides, tronquées, refusées ou attendant un outil sont invalides, et ne deviennent pas des absences de marque.
+### Recherche OpenRouter
+
+Le connecteur utilise le nouvel [outil serveur Web Search](https://openrouter.ai/docs/guides/features/server-tools/web-search), avec `type: "openrouter:web_search"`, moteur Exa, mode `fast`, `max_uses: 1`, `max_results: 3`, `max_total_results: 3`, `max_characters: 1500` et `max_tool_calls: 1`. Voir aussi le [fonctionnement des outils serveur](https://openrouter.ai/docs/guides/features/server-tools). L’outil peut être appelé ou ignoré par le modèle.
+
+Les annotations structurées `url_citation` alimentent les citations ; `usage.server_tool_use_details.web_search_requests` fournit le nombre de recherches. Sans cette donnée, le nombre d’appels facturés reste inconnu. Les [annotations documentées](https://openrouter.ai/docs/guides/features/plugins/web-search) sont utilisées sans extraire de liens du texte. L’ancien plugin web est désactivé dans les requêtes pour ne pas ajouter une seconde recherche ou une recherche en mode baseline. Des politiques imposées dans le compte OpenRouter peuvent avoir priorité : vérifier les réglages du compte avant un pilote.
+
+Un identifiant précis est envoyé, sans modèle de secours. Le routage entre hébergeurs du même modèle reste possible, avec `require_parameters: true`, `data_collection: deny` et un plafond `max_price` aux tarifs du profil, sans tarif par requête accepté. Si aucun hébergeur ne correspond, l’appel échoue. [Routage officiel](https://openrouter.ai/docs/guides/routing/provider-selection), [raisonnement](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
+
+## Authentification et erreurs 401
+
+Les clés sont chiffrées en base et liées à l’organisation et au fournisseur. Elles ne sont ni retournées dans `/api/state`, ni enregistrées dans le stockage du navigateur. Cliquer sur un fournisseur non connecté dans une campagne ouvre son formulaire de connexion, puis revient à la campagne après enregistrement.
+
+L’interface vérifie l’authentification avant d’enregistrer une clé et avant de lancer une campagne manuelle. **Vérifier** dans Paramètres effectue le même contrôle, sans génération de texte ni lancement de mesure. Les endpoints en lecture seule sont fixes : `/v1/models` chez OpenAI, Kimi et Xiaomi, `/v1beta/models` chez Gemini, `/api/v1/key` chez OpenRouter. [OpenAI](https://developers.openai.com/api/reference/resources/models/methods/list), [Gemini](https://ai.google.dev/api/models), [OpenRouter](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key). Le contrôle est authentifié, limité en fréquence et isolé par organisation. Une acceptation HTTP ne garantit ni le solde ni l’accès au modèle choisi.
+
+Un refus 401 exige une clé valide sur la bonne plateforme ; le logiciel ne peut pas réparer une clé refusée. Une panne réseau ou un 429 ne sont pas présentés comme une clé valide. Les messages restent explicites sans exposer le payload fournisseur, susceptible de contenir un secret.
+
+Si un appel du worker reçoit 401, les requêtes encore en attente du même fournisseur dans cette campagne sont arrêtées, sans toucher aux autres organisations ou fournisseurs. Les réservations de ces requêtes et de la requête refusée sont libérées : aucune inférence n’a eu lieu. Les anciens refus 401 sont réconciliés de la même façon, sans effacer l’historique. Une clé connue comme refusée bloque les nouvelles campagnes jusqu’à son remplacement ou une vérification d’authentification réussie. Aucune campagne n’est relancée automatiquement. L’API d’enregistrement directe ne remplace pas ces contrôles d’interface ; le worker traite aussi ses refus.
 
 ## Coûts et limites
 
-Les tarifs Kimi retenus sont 2 USD/million en entrée, 10 USD/million en sortie et 0,20 USD/million pour une lecture de cache effectivement rapportée. Le tarif d’écriture à cinq minutes est égal au tarif d’entrée ; les catégories d’usage sont exclusives et ne sont pas additionnées deux fois. La réservation ne suppose aucun cache. Sources : [tarifs Kimi](https://platform.kimi.ai/docs/pricing/chat), [fonctionnement et facturation du cache](https://platform.kimi.ai/docs/guide/context-caching).
+Tarifs de référence en USD, hors taxes et frais de recharge :
 
-Pour OpenRouter, `usage.cost` est conservé lorsqu’il est fourni, avec `costSource: provider_reported`. Sinon, l’usage disponible produit une estimation au tarif figé ; sans usage exploitable, la réservation demeure un coût incertain. Les taxes, frais de recharge et dépenses réalisées hors de cette installation ne sont pas inclus. [Comptabilisation officielle](https://openrouter.ai/docs/cookbook/administration/usage-accounting).
+- **Kimi** : 2 USD/million en entrée, 10 en sortie et 0,20 en lecture de cache explicitement rapportée. L’écriture du cache cinq minutes coûte le tarif d’entrée. La recherche coûte 0,005 USD lorsqu’elle est déclenchée. [Tarifs tokens](https://platform.kimi.ai/docs/pricing/chat), [cache](https://platform.kimi.ai/docs/guide/context-caching), [recherche](https://platform.kimi.ai/docs/api/responses).
+- **Xiaomi direct** : 0,435 USD/million en entrée, 0,87 en sortie et 0,0036 en lecture de cache, selon les tarifs hors Chine continentale. Recherche : 0,005 USD par appel rapporté. [Tarifs officiels](https://mimo.mi.com/docs/en-US/price/pay-as-you-go).
+- **OpenRouter** : le coût total `usage.cost` est préféré à l’estimation, avec `costSource: provider_reported`. Il inclut déjà les frais de recherche : ils ne sont pas ajoutés une seconde fois. À défaut, l’usage disponible et les recherches rapportées sont valorisés au tarif figé ; Exa fast coûte 0,007 USD par recherche. Sans usage exploitable, la réservation reste un coût incertain. [Comptabilisation](https://openrouter.ai/docs/cookbook/administration/usage-accounting), [tarifs du nouvel outil](https://openrouter.ai/docs/guides/features/server-tools/web-search).
 
-Les réservations de budget et l’isolation entre organisations s’appliquent aux quatre fournisseurs. La sortie Kimi est plafonnée à 8 192 tokens pour laisser de la place au raisonnement ; elle peut encore être tronquée. Le délai maximal est de 90 secondes pour les profils Kimi et 60 secondes pour les autres. Les réponses sont limitées à 2 Mo et les redirections réseau refusées. Aucun échec n’est relancé automatiquement.
+La réservation ne suppose aucun cache. Pour la recherche Kimi/MiMo/OpenRouter, elle ajoute une provision de **32 000 tokens d’entrée** pour le contexte de recherche, plus les frais d’un appel. OpenRouter provisionne deux passages du modèle, avant et après l’outil. Cette provision est une estimation explicite, **pas une limite contractuelle de facture** : le contexte réellement injecté dépend du fournisseur. L’usage retourné remplace l’estimation quand il est exploitable. Les plafonds du compte fournisseur restent nécessaires pour contrôler la dépense totale, notamment hors de cette application.
 
-Une évolution des profils/tarifs ouvre une configuration distincte. Les plannings ayant une version de tarifs ancienne doivent être réenregistrés après vérification de l’estimation ; leur configuration n’est pas remplacée silencieusement.
+Les réservations atomiques et l’isolation s’appliquent aux cinq fournisseurs. La sortie est limitée à 8 192 tokens pour Kimi et 1 200 pour les autres ; elle peut encore être tronquée. Délai maximal de 90 secondes pour les profils Kimi et 60 secondes pour les autres, réponse limitée à 2 Mo, redirections refusées. Aucun échec n’est relancé automatiquement.
+
+Chaque campagne fige les paramètres, l’endpoint, le modèle et les tarifs. Chaque réponse conserve son modèle retourné, son identifiant, ses dates, l’usage et le fournisseur d’exécution communiqué par OpenRouter. La comparaison historique exige une composition identique de modèles et de fournisseurs d’exécution connus. Une évolution de paramètres/tarifs ouvre une configuration distincte ; les plannings anciens concernés doivent être réenregistrés, sans réécriture silencieuse de leur configuration.
 
 ## Sauvegarde sur cet appareil
 

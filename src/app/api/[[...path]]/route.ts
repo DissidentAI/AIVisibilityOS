@@ -3,7 +3,8 @@ import { sql } from "@/db/client";
 import { AppError } from "@/lib/errors";
 import { ProjectValidationError } from "@/lib/project-validation";
 import { authenticate, rateLimit, requireUser, sessionCookie, sessionToken } from "@/lib/auth";
-import { assertOrigin, digest, verifyPassword } from "@/lib/security";
+import { assertOrigin, digest, verifyPassword, decryptSecret } from "@/lib/security";
+import { credentialCheckSchema, verifyProviderCredential } from "@/lib/provider-auth";
 import {
   createProject,
   createRun,
@@ -134,6 +135,19 @@ async function handler(request: Request, context: { params: Promise<{ path?: str
           : await sql`delete from brands where id=${path[1]} and org_id=${user.org_id} and is_primary=false returning id`;
       if (!rows.length) throw new AppError("not_found", 404);
       return json({ ok: true });
+    }
+    if (route === "credentials/check" && method === "POST") {
+      await rateLimit(`credential-check:${user.id}`, 30, 60);
+      const { provider, key: candidate } = credentialCheckSchema.parse(await body(request));
+      const [stored] = candidate
+        ? []
+        : await sql`select encrypted_key from credentials where org_id=${user.org_id} and provider=${provider}`;
+      if (!candidate && !stored) throw new AppError("credentials_required");
+      const key = candidate ?? decryptSecret(stored.encrypted_key, `${user.org_id}:${provider}`);
+      const result = await verifyProviderCredential(provider, key);
+      if (stored)
+        await sql`update credentials set updated_at=now() where org_id=${user.org_id} and provider=${provider} and encrypted_key=${stored.encrypted_key}`;
+      return json(result);
     }
     if (route === "credentials" && method === "POST") {
       await saveCredential(user, await body(request));

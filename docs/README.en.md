@@ -2,7 +2,7 @@
 
 Self-hosted AI visibility measurement with auditable evidence. It measures explicit brand mentions in a defined sample of official API responses. **API observations are not observations of consumer ChatGPT, Gemini or Kimi interfaces.**
 
-The usable slice includes owner registration, encrypted credentials, projects and competitors, tracked queries, OpenAI/Gemini/Kimi/OpenRouter adapters, a durable PostgreSQL queue, spending reservations, response evidence, charts, historical comparisons and CSV export. Project drafts and campaign preferences persist per account in the same browser, excluding secrets. See [provider profiles, costs and browser persistence](PROVIDERS.md). French/English and light/dark modes are included. No production demo responses are generated.
+The usable slice includes owner registration, encrypted credentials, projects and competitors, tracked queries, OpenAI/Gemini/Kimi/OpenRouter and **direct Xiaomi MiMo adapters using your Xiaomi API key**, a durable PostgreSQL queue, spending reservations, response evidence, charts, historical comparisons and CSV export. Project drafts and campaign preferences persist per account in the same browser, excluding secrets. See [provider profiles, costs and browser persistence](PROVIDERS.md). French/English and light/dark modes are included. No production demo responses are generated.
 
 ## Start locally
 
@@ -44,7 +44,9 @@ Tests use isolated `_test` databases and clearly labeled synthetic provider fixt
 
 The visibility score equals the explicit brand mention rate: `100 × mentioning valid responses / all valid responses`. Failures, refusals and truncated outputs are excluded. Zero valid responses means no score. Wilson intervals describe sample uncertainty under independence assumptions; correlated outputs and prompt selection limit inference. A mention is not an endorsement. No average ranking or automatic sentiment score is invented.
 
-Country is textual prompt context, not geolocation. Web search is disabled in the initial configurations; generated text URLs are not promoted to verified citations. Full provider metadata is retained. Exact models and pricing are captured in each campaign configuration. See [methodology](METHODOLOGY.md).
+Country is textual prompt context, not geolocation. Baseline mode does not request search; web mode is available for all five providers. Direct MiMo requires activating the Web Search plugin in the Xiaomi console. Kimi uses its Responses API; retrieved pages remain distinct from explicit answer citations. OpenRouter uses its bounded Exa server tool. Generated text URLs are not promoted to verified citations. Full provider metadata is retained. Exact models and pricing are captured in each campaign configuration. See [methodology](METHODOLOGY.md).
+
+To use your Xiaomi key, select **Settings → Connect a key → Xiaomi MiMo**. The direct connector uses `mimo-v2.6-pro` at Xiaomi's official pay-as-you-go endpoint; no OpenRouter account is required. The separate Xiaomi Token Plan is not supported by this endpoint. Saving a key in the UI and starting a manual campaign first check authentication using a read-only endpoint, without text generation. A successful check does not guarantee model access or available credit. A rejected Kimi key must be replaced with a valid Kimi API Platform key; retries cannot repair it. If a worker receives 401, it stops that campaign's remaining queued requests for the same provider and releases their reservations.
 
 This release supports one owner per installation. Persistent daily/weekly campaigns, explicit web-search measurements, preflight cost previews and branded PDF reports with immutable JSON evidence are available; see [agency workflows](AGENCY-WORKFLOWS.md). Teams, automatic report delivery, outbound alerts, content audits, GEO recommendations, Stripe and a hosted multi-tenant service remain future work. See [roadmap](ROADMAP.md) and [security](../SECURITY.md).
 

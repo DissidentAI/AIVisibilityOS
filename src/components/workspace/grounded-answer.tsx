@@ -62,6 +62,22 @@ export function GroundedAnswer({
           ))}
         </div>
       )}
+      {!!response.grounding?.sources?.length && (
+        <div className="evidence-sources">
+          <strong>{t("Pages trouvées par la recherche", "Pages returned by search")}</strong>
+          <p className="small muted">
+            {t(
+              "Ces pages ne sont pas comptées comme des citations de la réponse.",
+              "These pages are not counted as answer citations.",
+            )}
+          </p>
+          {response.grounding.sources.map((source, i) => (
+            <a key={i} className="text-link" href={source.url} target="_blank" rel="noreferrer">
+              {source.title || source.domain}
+            </a>
+          ))}
+        </div>
+      )}
       {response.grounding?.searchEntryHtml && (
         <iframe
           className="search-suggestions"

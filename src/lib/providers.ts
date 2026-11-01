@@ -4,6 +4,7 @@ import {
   MODELS,
   modelConfiguration,
   supportsWebSearch,
+  requestEndpoint,
   type Provider,
   type ModelConfiguration,
 } from "./provider-config";
@@ -20,14 +21,20 @@ export type MeasurementMode = (typeof MEASUREMENT_MODES)[number];
 export const SEARCH_PRICING = {
   openai: { toolMicros: 10_000, contentTokens: 8_000, maxCalls: 1 },
   gemini: { toolMicros: 35_000, contentTokens: 0, maxCalls: 1 },
+  kimi: { toolMicros: 5_000, contentTokens: 0, maxCalls: 1 },
+  openrouter: { toolMicros: 7_000, contentTokens: 0, maxCalls: 1 },
+  mimo: { toolMicros: 5_000, contentTokens: 0, maxCalls: 1 },
 } as const;
 export const MAX_OUTPUT = 1200;
 export type Grounding = {
   searched: boolean;
   toolCalls: number;
+  usageKnown?: boolean;
   queries: string[];
   searchEntryHtml: string | null;
   links: { end: number; url: string; title: string }[];
+  // Retrieved pages are not necessarily cited in the answer. Never count them as citations.
+  sources?: { url: string; domain: string; title: string; provenance: string }[];
 };
 export const PRICE_DATE = "2026-11-01";
 export function instructions(language: string, country: string) {
@@ -42,11 +49,17 @@ export function reserveMicros(
 ) {
   if (mode === "web" && !supportsWebSearch(provider))
     throw new ProviderError("web_search_unsupported");
-  const search = SEARCH_PRICING[provider as keyof typeof SEARCH_PRICING];
+  const search = SEARCH_PRICING[provider];
+  const web = mode === "web";
+  // OpenRouter's server tool may run the model before and after the search.
+  const modelCalls = web && provider === "openrouter" ? 2 : 1;
+  // Retrieval context is variable. This is a documented reserve, not a provider invoice cap.
+  const retrievalTokens = web && ["kimi", "mimo", "openrouter"].includes(provider) ? 32_000 : 0;
   // UTF-8 byte count plus framing is a conservative text-token upper estimate.
   return Math.ceil(
-    (Buffer.byteLength(query + system, "utf8") + 256) * model.input +
-      model.maxOutput * model.output +
+    (Buffer.byteLength(query + system, "utf8") + 256) * model.input * modelCalls +
+      model.maxOutput * model.output * modelCalls +
+      retrievalTokens * model.input +
       (mode === "web"
         ? search.toolMicros +
           // Conservatively cover reported usage plus a separate fixed search-content block.
@@ -79,7 +92,15 @@ const openaiSchema = z
         .object({
           type: z.string(),
           action: z
-            .object({ query: z.string().optional(), queries: z.array(z.string()).optional() })
+            .object({
+              query: z.string().optional(),
+              queries: z.array(z.string()).optional(),
+              sources: z
+                .array(
+                  z.object({ type: z.string(), url: z.string(), title: z.string().optional() }),
+                )
+                .optional(),
+            })
             .passthrough()
             .optional(),
           content: z
@@ -107,7 +128,13 @@ const openaiSchema = z
         })
         .passthrough(),
     ),
-    usage: z.object({ input_tokens: count, output_tokens: count }).nullish(),
+    usage: z
+      .object({
+        input_tokens: count,
+        output_tokens: count,
+        input_tokens_details: z.object({ cached_tokens: count.optional() }).optional(),
+      })
+      .nullish(),
   })
   .passthrough();
 const geminiSchema = z
@@ -188,6 +215,25 @@ const chatSchema = z
             content: z.string().nullish(),
             refusal: z.string().nullish(),
             tool_calls: z.array(z.unknown()).nullish(),
+            error_message: z.string().nullish(),
+            annotations: z
+              .array(
+                z
+                  .object({
+                    type: z.string(),
+                    url: z.string().optional(),
+                    title: z.string().optional(),
+                    url_citation: z
+                      .object({
+                        url: z.string(),
+                        title: z.string().optional(),
+                        end_index: count.optional(),
+                      })
+                      .optional(),
+                  })
+                  .passthrough(),
+              )
+              .optional(),
           })
           .passthrough(),
       }),
@@ -202,16 +248,43 @@ const chatSchema = z
           .passthrough()
           .nullish(),
         cost: z.number().finite().nonnegative().max(2000).nullish(),
+        server_tool_use_details: z
+          .object({ web_search_requests: count.optional() })
+          .passthrough()
+          .nullish(),
+        web_search_usage: z
+          .object({ tool_usage: count.optional(), page_usage: count.optional() })
+          .nullish(),
       })
       .passthrough()
       .nullish(),
   })
   .passthrough();
 export function parseResponse(provider: Provider, data: unknown): ProviderResult {
-  if (provider === "kimi" || provider === "openrouter") {
+  const kimiResponses =
+    provider === "kimi" && typeof data === "object" && data !== null && "output" in data;
+  if (!kimiResponses && (provider === "kimi" || provider === "openrouter" || provider === "mimo")) {
     const d = chatSchema.parse(data),
       choice = d.choices[0];
     const text = choice?.message.content ?? "";
+    const annotations = choice?.message.annotations ?? [];
+    const citations = annotations.flatMap((a) => {
+      if (provider === "openrouter" && a.type === "url_citation" && a.url_citation)
+        return citation(
+          a.url_citation.url,
+          a.url_citation.title ?? "",
+          "openrouter_url_annotation",
+        );
+      if (provider === "mimo" && a.type === "url_citation" && a.url)
+        return citation(a.url, a.title ?? "", "mimo_web_search_annotation");
+      return [];
+    });
+    const searches =
+      provider === "openrouter"
+        ? d.usage?.server_tool_use_details?.web_search_requests
+        : provider === "mimo"
+          ? d.usage?.web_search_usage?.tool_usage
+          : undefined;
     const cachedInput =
       d.usage?.prompt_tokens_details?.cached_tokens ?? d.usage?.cached_tokens ?? null;
     if (
@@ -225,6 +298,7 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
         choice?.finish_reason === "stop" &&
         text.trim() &&
         !choice.message.refusal &&
+        !choice.message.error_message &&
         !choice.message.tool_calls?.length
           ? "succeeded"
           : "invalid",
@@ -237,13 +311,42 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
       cachedInput,
       reportedCostMicros:
         provider === "openrouter" && d.usage?.cost != null ? Math.ceil(d.usage.cost * 1e6) : null,
-      servingProvider: provider === "openrouter" ? (d.provider ?? null) : "Moonshot AI",
+      servingProvider:
+        provider === "openrouter"
+          ? (d.provider ?? null)
+          : provider === "mimo"
+            ? "Xiaomi"
+            : "Moonshot AI",
       raw: data,
-      citations: [],
+      // Missing usage must stay unknown for cost accounting, even when annotations exist.
+      grounding:
+        searches != null || citations.length
+          ? {
+              searched: (searches ?? 0) > 0 || citations.length > 0,
+              toolCalls: searches ?? 0,
+              usageKnown: searches != null,
+              queries: [],
+              searchEntryHtml: null,
+              links:
+                provider === "openrouter"
+                  ? annotations.flatMap((a) => {
+                      const c = a.type === "url_citation" ? a.url_citation : undefined;
+                      const url = c && safePublicUrl(c.url);
+                      return url && c?.end_index != null && c.end_index <= text.length
+                        ? [{ end: c.end_index, url: url.href, title: c.title || url.hostname }]
+                        : [];
+                    })
+                  : [],
+            }
+          : undefined,
+      citations,
     };
   }
-  if (provider === "openai") {
+  if (provider === "openai" || kimiResponses) {
     const d = openaiSchema.parse(data);
+    const cached = d.usage?.input_tokens_details?.cached_tokens;
+    if (cached != null && d.usage && cached > d.usage.input_tokens)
+      throw new ProviderError("invalid_provider_payload");
     const parts = d.output.filter((o) => o.type === "message").flatMap((o) => o.content ?? []);
     const text = parts
       .filter((p) => p.type === "output_text")
@@ -257,6 +360,8 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
       requestId: d.id,
       input: d.usage?.input_tokens ?? null,
       output: d.usage?.output_tokens ?? null,
+      cachedInput: kimiResponses ? (d.usage?.input_tokens_details?.cached_tokens ?? null) : null,
+      servingProvider: kimiResponses ? "Moonshot AI" : "OpenAI",
       raw: data,
       grounding: {
         searched: d.output.some((o) => o.type === "web_search_call"),
@@ -269,27 +374,40 @@ export function parseResponse(provider: Provider, data: unknown): ProviderResult
           ),
         ],
         searchEntryHtml: null,
-        links: parts.flatMap((p, i) =>
-          (p.annotations ?? []).flatMap((a) => {
-            const url = a.url && safePublicUrl(a.url);
-            const end = a.end_index;
-            if (a.type !== "url_citation" || !url || end == null || end > (p.text ?? "").length)
-              return [];
-            const offset = parts
-              .slice(0, i)
-              .filter((x) => x.type === "output_text")
-              .reduce((sum, x) => sum + (x.text ?? "").length + 1, 0);
-            return [{ end: offset + end, url: url.href, title: a.title || url.hostname }];
-          }),
-        ),
+        sources: kimiResponses
+          ? d.output
+              .filter((o) => o.type === "web_search_call")
+              .flatMap((o) =>
+                (o.action?.sources ?? []).flatMap((s) =>
+                  s.type === "url" ? citation(s.url, s.title ?? "", "kimi_search_result") : [],
+                ),
+              )
+          : undefined,
+        links: kimiResponses
+          ? []
+          : parts.flatMap((p, i) =>
+              (p.annotations ?? []).flatMap((a) => {
+                const url = a.url && safePublicUrl(a.url);
+                const end = a.end_index;
+                if (a.type !== "url_citation" || !url || end == null || end > (p.text ?? "").length)
+                  return [];
+                const offset = parts
+                  .slice(0, i)
+                  .filter((x) => x.type === "output_text")
+                  .reduce((sum, x) => sum + (x.text ?? "").length + 1, 0);
+                return [{ end: offset + end, url: url.href, title: a.title || url.hostname }];
+              }),
+            ),
       },
-      citations: parts.flatMap((p) =>
-        (p.annotations ?? []).flatMap((a) =>
-          a.type === "url_citation" && a.url
-            ? citation(a.url, a.title ?? "", "openai_url_annotation")
-            : [],
-        ),
-      ),
+      citations: kimiResponses
+        ? []
+        : parts.flatMap((p) =>
+            (p.annotations ?? []).flatMap((a) =>
+              a.type === "url_citation" && a.url
+                ? citation(a.url, a.title ?? "", "openai_url_annotation")
+                : [],
+            ),
+          ),
     };
   }
   const d = geminiSchema.parse(data),
@@ -350,6 +468,28 @@ export function requestOptions(
 ) {
   if (mode === "web" && !supportsWebSearch(provider))
     throw new ProviderError("web_search_unsupported");
+  if (provider === "kimi" && mode === "web")
+    return {
+      model: model.id,
+      stream: false,
+      max_output_tokens: model.maxOutput,
+      reasoning: { effort: "low" },
+      prompt_cache_options: { mode: "implicit", ttl: "5m" },
+      tools: [{ type: "web_search", search_content_types: ["text"] }],
+      tool_choice: "auto",
+      include: ["web_search_call.action.sources"],
+    };
+  if (provider === "mimo")
+    return {
+      model: model.id,
+      stream: false,
+      max_completion_tokens: model.maxOutput,
+      thinking: { type: "disabled" },
+      temperature: 0.7,
+      ...(mode === "web"
+        ? { tools: [{ type: "web_search", force_search: true, max_keyword: 1, limit: 3 }] }
+        : {}),
+    };
   return provider === "openai"
     ? {
         model: MODELS.openai.id,
@@ -396,6 +536,26 @@ export function requestOptions(
                   data_collection: "deny",
                   max_price: { prompt: model.input, completion: model.output, request: 0 },
                 },
+                // Do not inherit an account's web plugin into baseline measurements.
+                plugins: [{ id: "web", enabled: false }],
+                ...(mode === "web"
+                  ? {
+                      tools: [
+                        {
+                          type: "openrouter:web_search",
+                          parameters: {
+                            engine: "exa",
+                            mode: "fast",
+                            max_uses: 1,
+                            max_results: 3,
+                            max_total_results: 3,
+                            max_characters: 1500,
+                          },
+                        },
+                      ],
+                      max_tool_calls: 1,
+                    }
+                  : {}),
               }),
         };
 }
@@ -413,7 +573,7 @@ export async function callProvider(
     throw new ProviderError("web_search_unsupported");
   const body = {
     ...requestOptions(provider, mode, model),
-    ...(provider === "openai"
+    ...(provider === "openai" || (provider === "kimi" && mode === "web")
       ? { instructions: system, input: query }
       : provider === "gemini"
         ? {
@@ -429,11 +589,15 @@ export async function callProvider(
   };
   let response: Response;
   try {
-    response = await fetch(model.endpoint, {
+    response = await fetch(requestEndpoint(provider, mode, model), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(provider === "gemini" ? { "x-goog-api-key": key } : { Authorization: `Bearer ${key}` }),
+        ...(provider === "gemini"
+          ? { "x-goog-api-key": key }
+          : provider === "mimo"
+            ? { "api-key": key }
+            : { Authorization: `Bearer ${key}` }),
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(model.reasoning === "low" ? 90_000 : 60_000),

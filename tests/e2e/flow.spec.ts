@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 test("real browser: Karburo, cost preview, schedules, branded PDF, web evidence, CSV and mobile", async ({
   page,
 }) => {
+  // Test-only authentication fixture; no credentials are sent to external providers.
+  await page.route("**/api/credentials/check", (route) => route.fulfill({ json: { valid: true } }));
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");

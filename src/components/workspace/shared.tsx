@@ -15,6 +15,7 @@ import { Button } from "../ui/button";
 import { motion } from "motion/react";
 import { useMotionPreferences } from "../ui/motion";
 import { isProjectIssue, type ProjectIssue } from "@/lib/project-validation";
+import { PROVIDERS, PROVIDER_LABELS } from "@/lib/provider-config";
 export type Translate = (fr: string, en: string) => string;
 export const ModalError = createContext("");
 export class ApiError extends Error {
@@ -38,11 +39,13 @@ export function Modal({
   title,
   children,
   onClose,
+  onCloseStart,
   wide = false,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  onCloseStart?: () => void;
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -62,7 +65,11 @@ export function Modal({
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
   }, []);
-  const close = () => (reduced ? onClose() : setClosing(true));
+  const close = () => {
+    onCloseStart?.();
+    if (reduced) onClose();
+    else setClosing(true);
+  };
   return (
     <motion.dialog
       ref={ref}
@@ -157,6 +164,27 @@ export const money = (n: number) =>
     maximumFractionDigits: 4,
   }).format(n / 1e6);
 export function friendly(code: string, t: Translate) {
+  const provider = PROVIDERS.find((p) => code.endsWith(`_${p}`));
+  if (provider && code.startsWith("provider_auth_rejected_"))
+    return provider === "kimi"
+      ? t(
+          "Kimi refuse cette clé (401). Utilisez une clé de la plateforme API Kimi ; une clé Kimi Code ou un abonnement au chat ne donne pas accès à cette API. Remplacez la clé dans Paramètres.",
+          "Kimi rejected this key (401). Use a Kimi API Platform key; Kimi Code keys and chat subscriptions do not grant access to this API. Replace the key in Settings.",
+        )
+      : t(
+          `${PROVIDER_LABELS[provider]} refuse cette clé (401). Vérifiez la clé de sa plateforme API, puis remplacez-la dans Paramètres.`,
+          `${PROVIDER_LABELS[provider]} rejected this key (401). Check its API platform key and replace it in Settings.`,
+        );
+  if (provider && code.startsWith("provider_access_denied_"))
+    return t(
+      `${PROVIDER_LABELS[provider]} refuse cet accès (403). Vérifiez les permissions de la clé et les restrictions du compte.`,
+      `${PROVIDER_LABELS[provider]} denied access (403). Check key permissions and account restrictions.`,
+    );
+  if (provider && code.startsWith("provider_check_unavailable_"))
+    return t(
+      `Impossible de vérifier ${PROVIDER_LABELS[provider]} pour le moment. Aucun scan n’a été lancé ; réessayez dans un instant.`,
+      `Unable to verify ${PROVIDER_LABELS[provider]} right now. No scan was started; please try again shortly.`,
+    );
   const errors: Record<string, string> = {
     invalid_schedule_date: t(
       "Choisissez une date future dans les 366 prochains jours.",
@@ -212,12 +240,24 @@ export function friendly(code: string, t: Translate) {
       "The remaining budget cannot cover this campaign. Reduce samples or adjust your limit.",
     ),
     credentials_required: t(
-      "Connectez une clé pour chaque fournisseur sélectionné.",
-      "Connect a key for each selected provider.",
+      "Connectez une clé dans Paramètres pour chaque fournisseur sélectionné.",
+      "Connect a key in Settings for each selected provider.",
     ),
     web_search_unsupported: t(
-      "Sélectionnez le mode sans recherche web pour utiliser Kimi ou OpenRouter.",
-      "Select the mode without web search to use Kimi or OpenRouter.",
+      "Ce fournisseur ne prend pas en charge le mode web sélectionné.",
+      "This provider does not support the selected web mode.",
+    ),
+    provider_auth_failed_before_request: t(
+      "Appel non lancé : le fournisseur a refusé la clé sur une réponse précédente. Remplacez la clé dans Paramètres.",
+      "Request not sent: the provider rejected the key on a previous response. Replace the key in Settings.",
+    ),
+    provider_http_401: t(
+      "Clé API refusée par le fournisseur (401). Remplacez-la dans Paramètres.",
+      "API key rejected by the provider (401). Replace it in Settings.",
+    ),
+    provider_http_403: t(
+      "Accès refusé par le fournisseur (403). Vérifiez les permissions et l’activation de la recherche web dans sa console.",
+      "Provider access denied (403). Check permissions and web search activation in its console.",
     ),
     campaign_already_running: t(
       "Une campagne est en cours. Attendez sa fin.",
