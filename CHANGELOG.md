@@ -10,6 +10,7 @@ First packaged Community beta candidate for self-hosted agency installations.
 - Website audits, scheduled campaigns, evidence exports, multilingual PDF reports and French/English/Simplified Chinese interface.
 - Standalone Hostinger VPS Compose candidate with a pinned source tag, built-in HTTPS proxy, private environment generator and fail-closed configuration validation. No local configuration bind mounts are required by the production template.
 - Dependency notices included in application Docker images; reproducible source packaging, software bill of materials and checksums; Git history secret scanning in CI.
+- Prevent background reads from starting between the beginning of a WebKit page reload and the old document's `pagehide`, including when previous requests have already finished. Writes are never replayed automatically.
 
 ### Upgrade
 

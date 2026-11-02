@@ -9,14 +9,17 @@ export class ApiError extends Error {
 }
 export const isAborted = (error: unknown) => error instanceof Error && error.name === "AbortError";
 
-// A component effect can run after pagehide during a WebKit reload. Remember the
-// document lifecycle even after all earlier reads have finished; pageshow restores bfcache use.
+// A component effect can run during a WebKit reload, before pagehide. Remember
+// beforeunload even when no request is pending; pageshow restores a returning page.
 const lifecycles = new WeakMap<EventTarget, { leaving: boolean }>();
 function lifecycle(page: EventTarget) {
   let state = lifecycles.get(page);
   if (!state) {
     state = { leaving: false };
     const current = state;
+    page.addEventListener("beforeunload", () => {
+      current.leaving = true;
+    });
     page.addEventListener("pagehide", () => {
       current.leaving = true;
     });
@@ -49,7 +52,8 @@ export async function api<T>(
   if (read && page) {
     if (state?.leaving) abort();
     page.addEventListener("pagehide", leave, { once: true });
-    // Only while a read is pending. No prompt, no global unload listener or mutation replay.
+    // Cancel pending reads too. The lifecycle listener also blocks later effects.
+    // Neither listener requests a navigation prompt or replays mutations.
     page.addEventListener("beforeunload", leave, { once: true });
   }
   try {

@@ -3,6 +3,21 @@ import { api, ApiError } from "../src/lib/client-api";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("browser API request lifecycle", () => {
+  it("blocks late effects between beforeunload and pagehide when earlier reads finished", async () => {
+    const page = new EventTarget();
+    vi.stubGlobal("window", page);
+    const fetch = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetch);
+    await api("state");
+    // A render can finish after navigation starts but before pagehide fires.
+    page.dispatchEvent(new Event("beforeunload"));
+    await expect(api("runs")).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    page.dispatchEvent(new Event("pagehide"));
+    page.dispatchEvent(new Event("pageshow"));
+    expect(await api("state")).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it("never starts a late read after pagehide and resumes after pageshow", async () => {
     const page = new EventTarget();
     vi.stubGlobal("window", page);
