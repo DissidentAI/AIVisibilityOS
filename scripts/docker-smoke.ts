@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 // Intended only for the disposable Compose stack created by CI.
 if (process.env.CI !== "true")
   throw new Error("Docker smoke test is limited to disposable CI stacks");
-const origin = "http://localhost:3000";
+const origin = process.env.SMOKE_ORIGIN ?? "http://localhost:3000";
 const health = await fetch(`${origin}/api/health`);
 if (!health.ok) throw new Error("Database readiness check failed");
 const auth = await fetch(`${origin}/api/auth/register`, {
@@ -18,6 +18,10 @@ const auth = await fetch(`${origin}/api/auth/register`, {
 if (!auth.ok) throw new Error(`Owner registration failed: ${auth.status}`);
 const cookie = auth.headers.get("set-cookie")?.split(";")[0];
 if (!cookie) throw new Error("Session cookie missing");
+if (origin.startsWith("https://") && !auth.headers.get("set-cookie")?.includes("Secure"))
+  throw new Error("HTTPS session cookie must be Secure");
+if ((await fetch(`${origin}/api/state`)).status !== 401)
+  throw new Error("Anonymous workspace access must be denied");
 const project = await fetch(`${origin}/api/projects`, {
   method: "POST",
   headers: { origin, cookie, "Content-Type": "application/json" },
@@ -55,6 +59,8 @@ for (const path of [
   `schedules?project=${projectInfo.id}`,
   `reports?project=${projectInfo.id}`,
   "branding",
+  `projects/${projectInfo.id}/query-views`,
+  `projects/${projectInfo.id}/actions`,
 ]) {
   const result = await fetch(`${origin}/api/${path}`, { headers: { cookie } });
   if (!result.ok) throw new Error("Agency tables unavailable");

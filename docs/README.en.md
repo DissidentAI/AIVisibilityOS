@@ -1,5 +1,7 @@
 # AI Visibility OS — Community
 
+**Community beta v0.2.0-beta.1.** [Release notes](../CHANGELOG.md), [Hostinger VPS setup](HOSTINGER.md), [submission dossier](HOSTINGER-SUBMISSION.md) and [third-party notices](../THIRD_PARTY_NOTICES.md).
+
 Self-hosted AI visibility measurement with auditable evidence. It measures explicit brand mentions in a defined sample of official API responses. **API observations are not observations of consumer ChatGPT, Gemini or Kimi interfaces.**
 
 The usable slice includes owner registration, encrypted credentials, projects and competitors, tracked queries, OpenAI/Gemini/Kimi/OpenRouter and **direct Xiaomi MiMo adapters using your Xiaomi API key**, a durable PostgreSQL queue, spending reservations, response evidence, charts, historical comparisons and CSV export. Project drafts and campaign preferences persist per account in the same browser, excluding secrets. See [provider profiles, costs and browser persistence](PROVIDERS.md). French/English/Simplified Chinese and light/dark modes are included. No production demo responses are generated.

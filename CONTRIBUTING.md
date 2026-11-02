@@ -8,7 +8,7 @@ Merci / Thank you. Start with the [README](README.md) and [measurement methodolo
 4. Add meaningful tests for measurement changes, authorization, money/budget logic and provider parsing. Synthetic data belongs under `tests/` and must not appear in production statistics.
 5. Run `npm run typecheck`, `npm test`, `npm run build` and `npm run test:e2e` for a user flow change. See the README for browser installation.
 6. Generate migrations with `npm run db:generate`; inspect SQL, apply to an empty test database and an existing schema. Never rewrite an applied release migration.
-7. Include French and English labels, accessible form names, keyboard behavior and mobile layout for interface changes.
+7. Include French, English and Simplified Chinese labels, accessible form names, keyboard behavior and mobile layout for interface changes.
 8. Describe validation and known limitations in the PR. Never claim a live API connection was tested when only fixtures were used.
 
 Adapters must use documented official endpoints, retain provenance/usage, handle refusal/truncation and exclude invalid responses from denominators. Do not infer rankings, invent citations or activate unbudgeted tools/retries. Changing model defaults or methodology requires explicit versioning and comparison review.

@@ -1,0 +1,5 @@
+# Only used with a disposable CI Compose project. Production uses public ACME certificates.
+services:
+  proxy:
+    volumes:
+      - ../.local/hostinger-ci-Caddyfile:/etc/caddy/Caddyfile:ro

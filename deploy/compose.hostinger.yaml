@@ -1,0 +1,76 @@
+# Standalone candidate for Hostinger VPS / Docker Manager. No local bind mounts.
+# The repository and v0.2.0-beta.1 tag must be public before anonymous deployment.
+# Generate the private environment with: npm run setup:hostinger -- --domain your.domain
+name: ai-visibility-os-hostinger
+x-source: &source ${AI_VISIBILITY_SOURCE:-https://github.com/DissidentAI/AIVisibilityOS.git#v0.2.0-beta.1}
+x-env: &app-env
+  DATABASE_URL: postgres://visibility:${POSTGRES_PASSWORD:?Generate private deployment settings}@db:5432/visibility
+  APP_DOMAIN: ${APP_DOMAIN:?Set your real domain}
+  APP_URL: ${APP_URL:?Set the matching https origin}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Generate private deployment settings}
+  BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:?Generate private deployment settings}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate private deployment settings}
+  MAX_MONTHLY_BUDGET_USD: ${MAX_MONTHLY_BUDGET_USD:-20}
+  RETENTION_DAYS: ${RETENTION_DAYS:-365}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-12}
+services:
+  db:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: visibility
+      POSTGRES_DB: visibility
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate private deployment settings}
+    volumes: ["postgres_data:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U visibility -d visibility"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+  migrate:
+    build: { context: *source, target: worker }
+    command: ["sh", "-c", "node scripts/check-hostinger.mjs && npm run db:migrate"]
+    environment: *app-env
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+  web:
+    build: { context: *source, target: web }
+    environment: *app-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+  worker:
+    build: { context: *source, target: worker }
+    environment: *app-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    stop_grace_period: 120s
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+  proxy:
+    build: { context: *source, target: proxy }
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set your real domain}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: ["caddy_data:/data", "caddy_config:/config"]
+    depends_on:
+      web: { condition: service_healthy }
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

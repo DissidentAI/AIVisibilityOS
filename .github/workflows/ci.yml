@@ -3,6 +3,14 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - run: bash scripts/scan-secrets.sh
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -42,7 +50,7 @@ jobs:
           retention-days: 7
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -66,6 +74,8 @@ jobs:
           docker compose exec -T db pg_restore -U visibility -d visibility_restore --no-owner --exit-on-error < "${backup_files[0]}"
           restored_count=$(docker compose exec -T db psql -U visibility -d visibility_restore -tAc 'select count(*) from projects;')
           test "$restored_count" = "1"
+      - name: Verify standalone Hostinger VPS candidate
+        run: bash scripts/test-hostinger-compose.sh
       - if: failure()
         run: docker compose logs --tail=60 web worker migrate
       - if: always()

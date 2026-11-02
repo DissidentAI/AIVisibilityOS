@@ -2,6 +2,8 @@
 
 **Des mesures de visibilité IA que vos clients peuvent vérifier.**
 
+**Community beta v0.2.0-beta.1** · [Notes de version](CHANGELOG.md) · [Installation et candidature Hostinger](docs/HOSTINGER.md) · [Notices tierces](THIRD_PARTY_NOTICES.md).
+
 [English documentation](docs/README.en.md) · [Scans et rapports · FR / EN / 中文](docs/PLANNING-AND-REPORTS.md) · [Installation VPS](docs/DEPLOYMENT.md) · [Méthodologie](docs/METHODOLOGY.md) · [Validation commerciale](docs/BUSINESS.md) · [Audit produit et responsive](docs/AUDIT-PRODUIT-UX-2026-11-01.md)
 
 [Audit produit et améliorations du 1er novembre 2026](docs/AUDIT-2026-11-01.md)
@@ -79,6 +81,8 @@ docker compose up --build -d
 ```
 
 Les migrations sont exécutées avant le web et le worker. Le port web est limité à l’interface locale, PostgreSQL n’est pas exposé. Pour Hostinger ou un autre VPS, suivre [le guide HTTPS, sauvegarde et restauration](docs/DEPLOYMENT.md).
+
+Pour une nouvelle installation via Docker Manager, un [modèle Hostinger autonome](deploy/compose.hostinger.yaml) construit le tag de la bêta et inclut HTTPS. Le [guide Hostinger](docs/HOSTINGER.md) explique la génération des secrets, le domaine et la validation. Ce modèle nécessite la publication du dépôt/tag ; sa préparation ne constitue pas une admission au catalogue.
 
 ## Vérifier le code
 

@@ -1,6 +1,8 @@
 # Validation effectuée
 
-État vérifié le **1er novembre 2026**, sur macOS arm64, Node 24.19, PostgreSQL 18 local.
+Les sections ci-dessous conservent l’historique des validations. La préparation **v0.2.0-beta.1 du 2 novembre 2026** ajoute les contrôles d’installation Hostinger ; voir la section dédiée en fin de document et la CI du commit de release pour son résultat final.
+
+État initial vérifié le **1er novembre 2026**, sur macOS arm64, Node 24.19, PostgreSQL 18 local.
 
 | Vérification                                                | Résultat                                                                           |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -161,3 +163,13 @@ Tests ciblés : `npm test -- tests/workflows.test.ts tests/workflows-integration
 Contrôles : numérateur identique aux preuves filtrées, lien de tentative réouvrable, classement en lot sans réécriture des campagnes, vues persistantes, isolation entre organisations et entre projets, conflits de versions, idempotence, conservation et purge des preuves d’action, export/suppression, pagination au-delà de cent campagnes, motifs d’exclusion, absence de nouvel appel fournisseur. Les parcours couvrent Chromium et WebKit de 320 à 1440 px ; la matrice responsive générale contrôle aussi les trois langues.
 
 Les lectures navigateur sont interrompues à la sortie et aucune nouvelle lecture ne démarre après fermeture de la page. Un test vérifie la reprise après `pageshow`. Les mutations ne sont ni annulées ni rejouées automatiquement. Références de cycle de vie : [MDN pagehide](https://developer.mozilla.org/en-US/docs/Web/API/Window/pagehide_event), [MDN pageshow](https://developer.mozilla.org/en-US/docs/Web/API/Window/pageshow_event), [MDN beforeunload](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event) ; ce dernier n’est écouté que pendant une lecture en cours et ne crée aucun dialogue.
+
+## Candidat Hostinger — 2 novembre 2026
+
+La CI du commit précédent `0118d46` est [entièrement verte](https://github.com/DissidentAI/AIVisibilityOS/actions/runs/41355416326), y compris tests navigateur, Docker et restauration. La préparation du candidat ajoute quatre tests d’installation et un test d’archives (161 tests unitaires/PostgreSQL au total) : secrets uniques, domaine canonique sans injection de configuration, refus des paramètres incohérents, conservation des fichiers existants/symlinks, exclusion des données privées et vérification des sommes de contrôle. Les 22 parcours navigateur passent aussi sur cette préparation, avec compilation et TypeScript validés. Le scan initial Gitleaks 8.30.1 de tous les commits accessibles n’a signalé aucun secret ; un nouveau job CI refait ce contrôle sur chaque commit. Les résultats ne constituent pas un audit de sécurité indépendant.
+
+`scripts/test-hostinger-compose.sh` est limité à une infrastructure CI jetable. Il utilise `deploy/compose.hostinger.yaml`, construit depuis le checkout testé, puis vérifie TLS avec une CA interne, redirection HTTP, cookie Secure, bootstrap, autorisations, heartbeat worker, notices, absence de ports hôte pour web/DB, restauration séparée et conservation du projet après recréation des conteneurs. Les volumes de test sont supprimés en fin de scénario ; ce script doit rester interdit sur une instance utilisateur. Le résultat de ce nouveau scénario est celui du job `docker` du commit exact, lié depuis la release.
+
+Les archives sont produites par `npm run release:pack` depuis les seuls fichiers suivis au commit ; les chemins privés sont refusés. Le dossier inclut un SBOM CycloneDX dérivé du lockfile, les notices des dépendances installées, des empreintes SHA-256 et le commit source. Les images d’application conservent leur propre inventaire de licences selon leur plateforme.
+
+Aucun VPS réel, DNS public, achat, génération IA payante, inscription partenaire ou publication publique n’est effectué par ces tests. La validation hPanel, ACME public et les recettes fournisseurs avec un budget autorisé restent explicitement à effectuer avant d’annoncer un déploiement en un clic validé.
