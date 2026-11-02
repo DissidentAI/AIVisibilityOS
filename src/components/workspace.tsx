@@ -985,6 +985,7 @@ export function Workspace() {
                     {detail && (
                       <a
                         className="text-link"
+                        download
                         href={`/api/runs/${detail.run.id}/export?brandScope=${comparisonScope(detail)}`}
                       >
                         <ArrowDownToLine size={15} />
@@ -1593,7 +1594,7 @@ export function Workspace() {
                       <ShieldCheck size={18} />
                     </div>
                     <div className="settings-actions">
-                      <a className="btn btn-outline" href="/api/account/export">
+                      <a className="btn btn-outline" download href="/api/account/export">
                         <ArrowDownToLine size={15} />
                         {t("Exporter mes données", "Export my data")}
                       </a>
