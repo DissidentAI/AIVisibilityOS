@@ -58,7 +58,11 @@ test("mobile: more than two onboarding rows persist, fifty competitors compare a
   await page
     .getByLabel("Questions à surveiller", { exact: true })
     .fill("Quelle solution de gestion comparer ?");
-  await page.getByRole("button", { name: "Créer le projet", exact: true }).click();
+  // Linux WebKit can deliver this click just as its default 15-second stability
+  // budget expires. Still require a real actionable click and the saved project.
+  await page
+    .getByRole("button", { name: "Créer le projet", exact: true })
+    .click({ timeout: 30000 });
   await expect(page.getByRole("dialog", { name: "Créer un projet", exact: true })).toHaveCount(0);
   let state = await page.request.get("/api/state").then((r) => r.json());
   let project = state.projects.find((p: { name: string }) => p.name === "Large comparison fixture");

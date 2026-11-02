@@ -1453,6 +1453,9 @@ export function Workspace() {
                         onOpen={openProof}
                         filters={proofFilters}
                         onFilters={(filters) => {
+                          // Controlled inputs must keep their value during this event,
+                          // before the evidence-navigation effect runs.
+                          setProofFilters(filters);
                           if (detail)
                             showEvidence(
                               proofTarget(

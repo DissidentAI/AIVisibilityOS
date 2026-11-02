@@ -84,6 +84,10 @@ test.describe("retry workflow on desktop", () => {
     await expect(page.getByRole("button", { name: "Réessayer", exact: true })).toHaveCount(2);
     await page.getByLabel("Statut", { exact: true }).selectOption("failed");
     await page.getByLabel("Rechercher dans les réponses", { exact: true }).fill("application");
+    await expect(page.getByLabel("Rechercher dans les réponses", { exact: true })).toHaveValue(
+      "application",
+    );
+    await expect(page.getByLabel("Statut", { exact: true })).toHaveValue("failed");
     await expect(page.getByText("1 / 3 réponses affichées", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Réessayer", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Réessayer les échecs", exact: true });
