@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'printf "Hostinger CI check failed at line %s (secret values are not logged).\n" "$LINENO" >&2' ERR
 if [[ "${CI:-}" != true ]]; then
   printf 'This destructive disposable-stack test is restricted to CI.\n' >&2
   exit 1
@@ -32,8 +33,20 @@ node --env-file=.env.hostinger --import tsx scripts/docker-smoke.ts
 "${compose[@]}" exec -T web test -f /app/LICENSE
 "${compose[@]}" exec -T web test -f /app/third-party/index.json
 "${compose[@]}" exec -T worker test -f /app/third-party/index.json
-test -z "$("${compose[@]}" port web 3000 2>/dev/null || true)"
-test -z "$("${compose[@]}" port db 5432 2>/dev/null || true)"
+printf 'Application and dependency notices are present.\n'
+# Inspect actual host bindings, not the formatting of `compose port` for an EXPOSE-only port.
+# Only read this safe field: a full inspect would include private environment values.
+for service in web db; do
+  container_id="$("${compose[@]}" ps -q "$service")"
+  test -n "$container_id"
+  docker inspect --format '{{json .HostConfig.PortBindings}}' "$container_id" | node --input-type=module -e '
+    let input=""; for await (const chunk of process.stdin) input+=chunk;
+    const bindings=JSON.parse(input) ?? {};
+    if(Object.values(bindings).some(value=>Array.isArray(value) && value.length))
+      throw new Error("Application or database has a host port binding");
+  '
+done
+printf 'Application and database ports are private.\n'
 backup_output="$(bash scripts/backup.sh --env-file .env.hostinger -p aivisibility-hostinger-ci -f deploy/compose.hostinger.yaml -f tests/docker/hostinger-ci.yaml)"
 backup_path="${backup_output#Backup saved: }"
 test -f "$backup_path"
