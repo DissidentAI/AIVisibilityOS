@@ -28,7 +28,7 @@ Retention defaults to 365 days for completed campaigns. Usage records persist at
 
 ## Reporting
 
-Use GitHub **Security → Report a vulnerability** if private vulnerability reporting has been enabled on the repository. If it is unavailable, contact the repository owner privately through an existing verified channel. Do not post keys, personal data or exploit details in a public issue. No unverified security email address is supplied.
+Use GitHub [**Security → Report a vulnerability**](https://github.com/DissidentAI/AIVisibilityOS/security/advisories/new) for private reporting on the upstream repository. On a fork where this feature is unavailable, contact its owner privately through an existing verified channel. Do not post keys, personal data or exploit details in a public issue. No unverified security email address is supplied.
 
 Only the current release branch is supported during the MVP stage. Pin dependencies, run `npm audit` and review official API/pricing changes before upgrading production. See `docs/VALIDATION.md` for the evidence actually collected.
 

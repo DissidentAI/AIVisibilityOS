@@ -17,7 +17,7 @@ Préparé le **2 novembre 2026** pour **v0.2.0-beta.1**. Ce document contient le
 | Modèle économique Community        | Gratuit et auto-hébergeable ; frais API payés directement aux fournisseurs avec les clés de l’utilisateur |
 | Contact                            | Profil GitHub du mainteneur et issues du dépôt ; aucun email non vérifié fourni                           |
 
-Le dépôt est préparé pour publication mais sa visibilité et le statut de la release doivent être vérifiés avant envoi. Aucune approbation Hostinger ni affiliation active n’est revendiquée.
+Liens à transmettre : [dépôt GitHub](https://github.com/DissidentAI/AIVisibilityOS), [bêta v0.2.0-beta.1 et pièces jointes](https://github.com/DissidentAI/AIVisibilityOS/releases/tag/v0.2.0-beta.1), [Compose versionné](https://github.com/DissidentAI/AIVisibilityOS/blob/v0.2.0-beta.1/deploy/compose.hostinger.yaml). Aucune approbation Hostinger ni affiliation active n’est revendiquée.
 
 ## Description courte — français
 
@@ -56,7 +56,7 @@ The Community beta runs on a Linux VPS using Docker Compose, PostgreSQL, a persi
 - Logo fourni par le mainteneur : `src/assets/brand-mark.png`.
 - Captures : `docs/screenshots/overview-light.png`, `overview-dark.png`, `sign-in-mobile.png`, `response-markdown-mobile.png`, `reports-chinese-mobile.png`.
 - Les captures proviennent de l’application réelle en environnement de test. Les vues de démarrage n’affichent aucune mesure ; les réponses/rapports de test sont synthétiques et ne constituent pas des résultats clients.
-- Archives de release : source complète, dossier de présentation, notices tierces, SBOM CycloneDX, manifeste du commit et `SHA256SUMS`. Ne jamais joindre `.env`, `.env.hostinger`, `.local` ou une sauvegarde de base.
+- Archives de release : source complète, dossier de présentation, notices tierces, SBOM CycloneDX, manifeste du commit et `SHA256SUMS`. Le ZIP Hostinger contient la documentation et les captures pour l’évaluation ; utiliser le dépôt ou l’archive source pour installer l’application. Ne jamais joindre `.env`, `.env.hostinger`, `.local` ou une sauvegarde de base.
 
 ## Texte d’accompagnement — français
 
@@ -70,7 +70,7 @@ Je souhaite faire vérifier sa compatibilité avec votre programme Open-source p
 
 ## Dernières étapes réservées au propriétaire
 
-1. Autoriser la publication du dépôt et de la release bêta, puis vérifier leurs liens sans authentification. Une release en brouillon ou un dépôt privé n’est pas accessible au réviseur externe.
+1. Vérifier l’accès sans authentification aux liens ci-dessus et consulter les tests et limites indiqués dans la release.
 2. Inscrire le dépôt dans **hPanel → Source libre → Inscrivez votre application**. Choisir le parcours VPS/Docker Compose si ce choix est proposé ; cette architecture comprend PostgreSQL et un worker distinct.
 3. Fournir les textes/pièces demandés, sans secret ni données clients. Ne déclarer « déploiement en un clic validé » qu’après le test du parcours réel.
 4. Récupérer le lien/Markdown officiel et le code partenaire réellement délivrés. Les intégrer au README avec une mention d’affiliation ; aucun lien ne doit être inventé.

@@ -6,17 +6,17 @@ Page officielle consultée le **2 novembre 2026** : [Open-source partners](https
 
 La page annonce une commission de **20 %** lorsqu’une personne achète un plan via le bouton partenaire. Elle décrit l’ajout d’un dépôt GitHub public, une vérification de sa compatibilité, puis la récupération du bouton et du code de parrainage depuis le programme. Les applications Docker Compose sur VPS font partie des stacks annoncées. Les conditions finales, l’éligibilité, l’attribution et les paiements doivent être vérifiés dans le compte partenaire avant toute promesse commerciale.
 
-État de ce projet : **aucune approbation obtenue, aucun lien de parrainage délivré, aucun bouton actif**. Le dépôt reste privé. L’ajout d’un bouton et la publication du dépôt nécessitent les actions du propriétaire.
+État du programme partenaire : **aucune approbation obtenue, aucun lien de parrainage délivré, aucun bouton actif**. Le [dépôt GitHub](https://github.com/DissidentAI/AIVisibilityOS) et la [bêta v0.2.0-beta.1](https://github.com/DissidentAI/AIVisibilityOS/releases/tag/v0.2.0-beta.1) constituent les liens de candidature. La publication du code ne vaut pas admission au programme.
 
 Procédure :
 
-1. Valider le MVP et les obligations de licence, puis autoriser explicitement la publication GitHub.
+1. Vérifier les notes de la bêta, ses limites et les obligations de licence ; transmettre le dépôt et la release accessibles sans authentification.
 2. Inscrire ce dépôt dans le programme officiel et attendre la vérification.
 3. Copier exactement le Markdown/URL et les paramètres réellement délivrés par Hostinger.
 4. Ajouter ce bouton au README, en déclarant le lien rémunéré ; tester son chemin de déploiement sans achat automatique.
 5. Conserver le [guide Docker/VPS indépendant de l’hébergeur](DEPLOYMENT.md).
 
-L’application ne dépend d’aucun service Hostinger propriétaire. Les revenus d’affiliation sont accessoires, exclus des calculs de viabilité des abonnements. Aucun achat, déploiement public ou inscription partenaire n’a été effectué dans cette phase.
+L’application ne dépend d’aucun service Hostinger propriétaire. Les revenus d’affiliation sont accessoires, exclus des calculs de viabilité des abonnements. La publication de la bêta n’effectue aucun achat, déploiement de l’application sur un serveur public ou inscription partenaire.
 
 ## Choisir le parcours
 
@@ -54,23 +54,23 @@ Le script crée `.env.hostinger` avec des droits 0600, des secrets aléatoires d
 
 Les clés OpenAI/Gemini/Kimi/OpenRouter/MiMo sont facultatives pour installer l’application. Elles se configurent ensuite dans l’interface authentifiée. Aucune génération IA n’est déclenchée par l’installation.
 
-## Déployer depuis hPanel après publication
+## Déployer depuis hPanel
 
 Le parcours documenté par Hostinger est **VPS → Docker Manager → Compose → Compose from URL**, avec un lien vers un fichier Compose. [Guide officiel](https://www.hostinger.com/support/12040815-how-to-deploy-your-first-container-with-hostinger-docker-manager/).
 
-Lien prévu pour la version publiée :
+Fichier Compose de la bêta :
 
 ```text
 https://github.com/DissidentAI/AIVisibilityOS/blob/v0.2.0-beta.1/deploy/compose.hostinger.yaml
 ```
 
-Ce lien ne fonctionne pour un visiteur externe que lorsque le dépôt et le tag sont publics. Il ne s’agit pas d’un bouton de parrainage ni d’une approbation du catalogue. Fournir les variables dans l’éditeur d’environnement du projet Hostinger. Si le parcours ne permet pas de les renseigner avant lancement, utiliser le terminal privé et la procédure ci-dessous ; ne pas inscrire les secrets dans un Compose public.
+Il s’agit d’un fichier de déploiement versionné, pas d’un bouton de parrainage ni d’une approbation du catalogue. Fournir les variables dans l’éditeur d’environnement du projet Hostinger. Si le parcours ne permet pas de les renseigner avant lancement, utiliser le terminal privé et la procédure ci-dessous ; ne pas inscrire les secrets dans un Compose public.
 
 Le domaine A/AAAA doit pointer vers le VPS. Les ports 80/443 doivent être disponibles ; PostgreSQL et le web ne publient aucun port hôte. Le modèle active HTTPS sans profil facultatif. Le contrôle de configuration précède les migrations ; web et worker attendent leur succès. Le premier build prend plus longtemps qu’un téléchargement d’image précompilée. Prévoir initialement 4 GiB RAM pour le build, à confirmer sur la machine réelle.
 
 ### Alternative Docker Compose dans le terminal
 
-Après publication, cloner le tag dans un nouveau dossier :
+Cloner le tag dans un nouveau dossier :
 
 ```sh
 git clone --branch v0.2.0-beta.1 --depth 1 https://github.com/DissidentAI/AIVisibilityOS.git
@@ -80,7 +80,7 @@ docker compose --env-file .env.hostinger -f deploy/compose.hostinger.yaml up --b
 docker compose --env-file .env.hostinger -f deploy/compose.hostinger.yaml ps
 ```
 
-Avant publication, un réviseur déjà autorisé à cloner le dépôt privé peut tester les sources locales avec `AI_VISIBILITY_SOURCE=..` placé devant la commande Compose. Les utilisateurs publics n’ont pas besoin de cet override. Ne jamais mettre un jeton GitHub dans cette variable : utiliser un checkout autorisé.
+Pour tester un checkout local, les contributeurs peuvent utiliser `AI_VISIBILITY_SOURCE=..` placé devant la commande Compose. Une installation depuis le tag public n’a pas besoin de cet override. Ne jamais mettre un jeton GitHub dans cette variable.
 
 Ouvrir le domaine HTTPS, créer le propriétaire avec son code d’installation, puis connecter ses fournisseurs. Les inscriptions suivantes sont fermées. Aucune clé d’exemple, aucun compte prédéfini et aucune donnée de démonstration ne sont fournis.
 

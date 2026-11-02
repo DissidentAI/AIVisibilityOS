@@ -60,6 +60,8 @@ it("packages only committed source, verifies checksums and refuses tracked secre
       "docs/RELEASE-CHECKLIST.md",
       "docs/DEPLOYMENT.md",
       "docs/VALIDATION.md",
+      "docs/README.en.md",
+      "docs/METHODOLOGY.md",
       "docs/screenshots/test.txt",
       "scripts/setup-hostinger.mjs",
       "scripts/hostinger-config.mjs",
@@ -85,6 +87,15 @@ it("packages only committed source, verifies checksums and refuses tracked secre
     expect(names).toContain("README.md");
     expect(names).not.toContain(".env");
     expect(names).not.toContain(".local");
+    const submissionFiles = execFileSync(
+      "unzip",
+      ["-Z1", join(folder, "ai-visibility-os-v0.2.0-beta.1-hostinger.zip")],
+      { encoding: "utf8" },
+    );
+    expect(submissionFiles).toContain("docs/README.en.md");
+    expect(submissionFiles).toContain("docs/METHODOLOGY.md");
+    expect(submissionFiles).not.toContain(".env");
+    expect(submissionFiles).not.toContain(".local");
     for (const line of readFileSync(join(folder, "SHA256SUMS"), "utf8").trim().split("\n")) {
       const [hash, name] = line.split("  ");
       expect(
